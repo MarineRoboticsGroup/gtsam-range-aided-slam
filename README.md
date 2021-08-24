@@ -5,15 +5,14 @@ off-the-shelf solvers
 
 ## Getting Started
 
-This library makes use of the nonconvex QCQP solver developed by Jaehyun Park
-and Stephen Boyd. As such we have to be careful with the versions of packages we
-use. In particular, we must use `python[version='2.8.*|3.5.*|3.6.*']` and
-`cvxpy[version=0.4.9]`.
-
-To set up a proper environment using `conda` you can execute the following:
+This library is quite a pain to get the dependencies right, so please just
+accept the ugliness of pulling the `QCQP` source code directly into this repo
+and use `pip` to create a working environment from the `requirements.txt`
+provided in this repo. There are definitely some unnecessary installs in there
+that could used to be cleaned up, but lets deal with it for now. My way of doing
+this is (ugly) but as follows:
 
 ```bash
-conda create --name qcqp_ro_slam python=3.6
-conda activate qcqp_ro_slam
-conda install -c cvxgrp cvxpy=0.4.9
+conda create --name qcqp_ro_slam python=3.9
+pip install -r requirements.txt
 ```

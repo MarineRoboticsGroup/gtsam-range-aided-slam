@@ -10,6 +10,7 @@ ehthumbs.db
 
 # mypy
 *.sqlite3
+.mypy_cache
 
 # profiling
 *.log
