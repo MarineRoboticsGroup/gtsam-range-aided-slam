@@ -22,19 +22,8 @@ from utils import (
     _check_symmetric,
     _check_psd,
     _general_kron,
-    _matprint_block
+    _matprint_block,
 )
-
-
-def solve_mle_problem(data: FactorGraphData):
-    """
-    Takes the data describing the problem and returns the MLE solution to the
-    poses and landmark positions
-
-    args:
-        data (FactorGraphData): the data describing the problem
-    """
-    raise NotImplementedError("You need to implement this function")
 
 
 def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
@@ -100,7 +89,7 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
         return L
 
     def _get_connection_laplacian(data: FactorGraphData, dim: int) -> np.ndarray:
-        """ gets the graph connection laplacian as described in SE-Sync
+        """gets the graph connection laplacian as described in SE-Sync
         equations 14a and 14b
 
         args:
@@ -141,7 +130,7 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
         return L
 
     def _get_weighted_translation_matrix(data: FactorGraphData, dim: int) -> np.ndarray:
-        """ gets the weighted (1xd)-block-structured translation matrix as
+        """gets the weighted (1xd)-block-structured translation matrix as
         described in SE-Sync equation 15
 
         args:
@@ -172,7 +161,7 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
     def _get_weighted_translation_sigma_matrix(
         data: FactorGraphData, dim: int
     ) -> np.ndarray:
-        """ gets the weighted (dxd)-block-structured translation matrix as
+        """gets the weighted (dxd)-block-structured translation matrix as
         described in SE-Sync equation 16
 
         args:
@@ -199,7 +188,7 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
 
     # TODO incorporate weights into this - right now uniform weighting!
     def _get_weighted_range_matrix(data: FactorGraphData) -> np.ndarray:
-        """ gets the weighted range measurement data matrix as described in my
+        """gets the weighted range measurement data matrix as described in my
         notes in the latex subfolder in this repo
 
         args:
@@ -225,7 +214,10 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
 
     # SE-Sync equation 13a - num_translations x num_translations
     weighted_translation_laplacian = _get_translation_laplacian(data)
-    assert weighted_translation_laplacian.shape == (num_trans, num_trans,)
+    assert weighted_translation_laplacian.shape == (
+        num_trans,
+        num_trans,
+    )
 
     # SE-Sync equation 14a - dn x dn
     connection_laplacian = _get_connection_laplacian(data, d)
@@ -333,6 +325,106 @@ def _plot_constraint_matrices(Lambda, K, Q, data):
     plt.show()
 
 
+def _get_range_constraint_matrix(
+    data: FactorGraphData,
+) -> Tuple[cp.Variable, List[cp.Variable]]:
+    """gets the range constraint matrix for the lagrangian dual
+
+    args:
+        data (FactorGraphData): the data
+
+    returns:
+        cp.Variable: the range constraint matrix
+        List[cp.Variable]: the list of the Lagrange multipliers
+    """
+    d = data.dimension
+    mat_dim = data.poses_and_landmarks_dimension
+    K = np.zeros((mat_dim, mat_dim))
+
+    # we're going to keep these around just in case I end up needing them
+    lagrange_multipliers = []
+
+    # iterate over all range measurements
+    for measure in data.range_measurements:
+
+        # get the indices of the corresponding pose translation
+        measured_pose = data.get_range_measurement_pose(measure)
+        i_start, i_end = data.get_pose_translation_variable_indices(measured_pose)
+        assert isinstance(i_start, int) and isinstance(i_end, int)
+        assert i_start < i_end
+        assert i_start >= 0
+        assert i_end <= data.num_poses * d
+
+        # get the indices of the corresponding landmark translation
+        measured_landmark = data.get_range_measurement_landmark(measure)
+        j_start, j_end = data.get_landmark_translation_variable_indices(
+            measured_landmark
+        )
+        assert isinstance(j_start, int) and isinstance(j_end, int)
+        assert j_start < j_end
+        assert j_start >= data.num_poses * d
+        assert (
+            j_end <= data.num_translations * d
+        ), f"{j_end} > {data.num_translations * d}"
+
+        # this matrix represents the quadratic constraint between the
+        # distance variable d_ij and the two translations it is relating
+        # (t_i, t_j) -> d_ij^2 = ||t_i - t_j||^2
+        Kij = np.zeros(K.shape)
+
+        # The block matrices on the diagonals corresponding to the
+        # translations are identity matrices and the ones on the
+        # off-diagonals are negative identity matrices
+        Kij[i_start:i_end, i_start:i_end] = np.eye(d)
+        Kij[j_start:j_end, j_start:j_end] = np.eye(d)
+
+        Kij[i_start:i_end, j_start:j_end] = -np.eye(d)
+        Kij[j_start:j_end, i_start:i_end] = -np.eye(d)
+
+        # sanity check this
+        _check_symmetric(Kij)
+
+        # Finally, we scale this by this constraints corresponding lagrange
+        # multiplier and add it all together to the big matrix where we are
+        # summing these constraints
+        lagrange_multipliers.append(cp.Variable())
+        K += Kij * lagrange_multipliers[-1]
+
+    return K, lagrange_multipliers
+
+
+def _get_rotations_constraint_matrix(data: FactorGraphData) -> cp.Variable:
+    """gets the rotation constraint matrix for the lagrangian dual
+    enforcing that R.T @ R = I for all rotations
+
+    args:
+        data (FactorGraphData): the data
+
+    returns:
+        cp.Variable: the rotation constraint matrix
+    """
+
+    d = data.dimension
+    I_d = np.eye(d)
+    lambdas = []
+
+    # add in an offset to ignore all of the translation constraints
+    num_trans = data.num_translations
+    translation_offset = np.zeros((d * num_trans, d * num_trans))
+    lambdas.append(translation_offset)
+
+    # add lagrange multipliers
+    for _ in range(data.num_poses):
+        lam = cp.Variable((d, d), symmetric=True)
+
+        # add in kronecker product because we're vectorizing the rotations
+        lam = _general_kron(lam, I_d)
+        lambdas.append(lam)
+
+    Lambda = _block_diag(lambdas)
+    return Lambda
+
+
 def solve_lagrangian_dual(data: FactorGraphData):
     """
     Solves the lagrangian dual of the MLE problem
@@ -340,105 +432,6 @@ def solve_lagrangian_dual(data: FactorGraphData):
     args:
         data (FactorGraphData): the data describing the problem
     """
-
-    def _get_range_constraint_matrix(
-        data: FactorGraphData,
-    ) -> Tuple[cp.Variable, List[cp.Variable]]:
-        """ gets the range constraint matrix for the lagrangian dual
-
-        args:
-            data (FactorGraphData): the data
-
-        returns:
-            cp.Variable: the range constraint matrix
-            List[cp.Variable]: the list of the Lagrange multipliers
-        """
-        d = data.dimension
-        mat_dim = data.poses_and_landmarks_dimension
-        K = np.zeros((mat_dim, mat_dim))
-
-        # we're going to keep these around just in case I end up needing them
-        lagrange_multipliers = []
-
-        # iterate over all range measurements
-        for measure in data.range_measurements:
-
-            # get the indices of the corresponding pose translation
-            measured_pose = data.get_range_measurement_pose(measure)
-            i_start, i_end = data.get_pose_translation_variable_indices(measured_pose)
-            assert isinstance(i_start, int) and isinstance(i_end, int)
-            assert i_start < i_end
-            assert i_start >= 0
-            assert i_end <= data.num_poses * d
-
-            # get the indices of the corresponding landmark translation
-            measured_landmark = data.get_range_measurement_landmark(measure)
-            j_start, j_end = data.get_landmark_translation_variable_indices(
-                measured_landmark
-            )
-            assert isinstance(j_start, int) and isinstance(j_end, int)
-            assert j_start < j_end
-            assert j_start >= data.num_poses * d
-            assert (
-                j_end <= data.num_translations * d
-            ), f"{j_end} > {data.num_translations * d}"
-
-            # this matrix represents the quadratic constraint between the
-            # distance variable d_ij and the two translations it is relating
-            # (t_i, t_j) -> d_ij^2 = ||t_i - t_j||^2
-            Kij = np.zeros(K.shape)
-
-            # The block matrices on the diagonals corresponding to the
-            # translations are identity matrices and the ones on the
-            # off-diagonals are negative identity matrices
-            Kij[i_start:i_end, i_start:i_end] = np.eye(d)
-            Kij[j_start:j_end, j_start:j_end] = np.eye(d)
-
-            Kij[i_start:i_end, j_start:j_end] = -np.eye(d)
-            Kij[j_start:j_end, i_start:i_end] = -np.eye(d)
-
-            # sanity check this
-            _check_symmetric(Kij)
-
-            # Finally, we scale this by this constraints corresponding lagrange
-            # multiplier and add it all together to the big matrix where we are
-            # summing these constraints
-            lagrange_multipliers.append(cp.Variable())
-            K += Kij * lagrange_multipliers[-1]
-
-        return K, lagrange_multipliers
-
-    def _get_rotations_constraint_matrix(data: FactorGraphData) -> cp.Variable:
-        """ gets the rotation constraint matrix for the lagrangian dual
-        enforcing that R.T @ R = I for all rotations
-
-        args:
-            data (FactorGraphData): the data
-
-        returns:
-            cp.Variable: the rotation constraint matrix
-        """
-
-        d = data.dimension
-        I_d = np.eye(d)
-        lambdas = []
-
-        # add in an offset to ignore all of the translation constraints
-        num_trans = data.num_translations
-        translation_offset = np.zeros((d * num_trans, d * num_trans))
-        lambdas.append(translation_offset)
-
-        # add lagrange multipliers
-        for _ in range(data.num_poses):
-            lam = cp.Variable((d, d), symmetric=True)
-
-            # add in kronecker product because we're vectorizing the rotations
-            lam = _general_kron(lam, I_d)
-            lambdas.append(lam)
-
-        Lambda = _block_diag(lambdas)
-        return Lambda
-
     K, range_lagrange_multipliers = _get_range_constraint_matrix(data)
     Lambda = _get_rotations_constraint_matrix(data)
     Q, D = _get_data_matrix(data)
@@ -516,4 +509,3 @@ if __name__ == "__main__":
     # plt.hlines(pts, 0, 90)
     # plt.vlines(pts, 0, 90)
     plt.show()
-

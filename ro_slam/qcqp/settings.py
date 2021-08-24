@@ -25,8 +25,9 @@ SOFTWARE.
 RANDOM = "random"
 SDR = "sdr"
 SPECTRAL = "spectral"
+FIXED = "fixed"
 
-suggest_methods = [RANDOM, SDR, SPECTRAL]
+suggest_methods = [RANDOM, SDR, SPECTRAL, FIXED]
 
 COORD_DESCENT = "coord-descent"
 ADMM = "admm"

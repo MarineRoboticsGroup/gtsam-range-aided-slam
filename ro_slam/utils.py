@@ -38,7 +38,9 @@ def _block_diag(arr_list: List[cp.Variable]) -> cp.Variable:
     return B
 
 
-def _print_eigvals(M: np.ndarray, name: str = None, print_eigvec: bool = False, symmetric: bool = True):
+def _print_eigvals(
+    M: np.ndarray, name: str = None, print_eigvec: bool = False, symmetric: bool = True
+):
     """print the eigenvalues of a matrix"""
 
     if name is not None:
@@ -51,12 +53,10 @@ def _print_eigvals(M: np.ndarray, name: str = None, print_eigvec: bool = False, 
         else:
             eigvals, eigvecs = la.eig(M)
 
-
         # sort the eigenvalues and eigenvectors
         idx = eigvals.argsort()[::1]
         eigvals = eigvals[idx]
         eigvecs = eigvecs[:, idx]
-
 
         print(f"eigenvectors: {eigvecs}")
     else:
@@ -76,7 +76,9 @@ def _check_symmetric(mat):
 def _check_psd(mat: np.ndarray):
     """Checks that a matrix is positive semi-definite """
     assert isinstance(mat, np.ndarray)
-    assert np.min(la.eigvals(mat)) + 1e-3 >= 0.0
+    assert (
+        np.min(la.eigvals(mat)) + 1e-1 >= 0.0
+    ), f"min eigenvalue is {np.min(la.eigvals(mat))}"
 
 
 def _check_is_laplacian(L: np.ndarray):
@@ -100,9 +102,13 @@ def _check_is_laplacian(L: np.ndarray):
 
 def _matprint_block(mat, fmt="g"):
     col_maxes = [max([len(("{:" + fmt + "}").format(x)) for x in col]) for col in mat.T]
+    num_col = mat.shape[1]
+    row_spacer = ""
+    for _ in range(num_col):
+        row_spacer += "__ __ __ "
     for j, x in enumerate(mat):
         if j % 2 == 0:
-            print("__  __  __   __  __  __  __  __  __  __  __  __  __")
+            print(row_spacer)
             print("")
         for i, y in enumerate(x):
             if i % 2 == 1:
@@ -110,6 +116,9 @@ def _matprint_block(mat, fmt="g"):
             else:
                 print(("{:" + str(col_maxes[i]) + fmt + "}").format(y), end="  ")
         print("")
+
+    print(row_spacer)
+    print("\n\n\n")
 
 
 def _general_kron(a, b):
@@ -126,4 +135,3 @@ def _general_kron(a, b):
     rows = [cp.hstack(expr[i, :]) for i in range(num_rows)]
     full_expr = cp.vstack(rows)
     return full_expr
-

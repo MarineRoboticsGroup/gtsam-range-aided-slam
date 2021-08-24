@@ -45,6 +45,7 @@ from qcqp.settings import (
     RANDOM,
     SDR,
     SPECTRAL,
+    FIXED,
     suggest_methods,
     COORD_DESCENT,
     ADMM,
@@ -232,7 +233,7 @@ def admm_phase1(x0, prob, tol=1e-2, num_iters=1000):
     return z
 
 
-def admm_phase2(x0, prob, rho, tol=1e-2, num_iters=1000, viol_lim=1e4):
+def admm_phase2(x0, prob, rho, tol=1e-2, num_iters=1000, viol_lim=1e-1):
     logging.info("Starting ADMM phase 2 with rho %.3f", rho)
 
     bestx = np.copy(x0)
@@ -274,7 +275,7 @@ def admm_phase2(x0, prob, rho, tol=1e-2, num_iters=1000, viol_lim=1e4):
 
 def improve_admm(x0, prob, *args, **kwargs):
     num_iters = kwargs.get("num_iters", 1000)
-    viol_lim = kwargs.get("viol_lim", 1e4)
+    viol_lim = kwargs.get("viol_lim", 1e-1)
     tol = kwargs.get("tol", 1e-2)
     rho = kwargs.get("rho", None)
     phase1 = kwargs.get("phase1", True)
@@ -407,6 +408,7 @@ class QCQP:
         self.sdr_sol = None
         self.sdr_bound = None
         self.maximize_flag = prob.objective.NAME == "maximize"
+        self.fixed_guess = None
 
     def suggest(self, method=RANDOM, eps=1e-8, *args, **kwargs):
         if method not in suggest_methods:
@@ -435,6 +437,15 @@ class QCQP:
                     + eps * sp.identity(self.n)
                 )
             x = np.random.multivariate_normal(self.mu, self.Sigma)
+        elif method == FIXED:
+            if self.fixed_guess is None:
+                self.fixed_guess = kwargs.get("fixed_guess", None)
+                assert (
+                    self.fixed_guess is not None
+                ), "Must pass in guess to use this suggest functionality"
+                assert isinstance(self.fixed_guess, np.ndarray)
+
+            x = self.fixed_guess
 
         assign_vars(self.prob.variables(), x)
         f0 = self.qcqp_form.f0.eval(x)

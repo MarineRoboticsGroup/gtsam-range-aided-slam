@@ -17,6 +17,18 @@ class PoseVariable:
     true_position: Tuple[float, float] = attr.ib()
     true_theta: float = attr.ib()
 
+    @property
+    def rotation_matrix(self):
+        """
+        Get the rotation matrix for the measurement
+        """
+        return np.array(
+            [
+                [np.cos(self.true_theta), -np.sin(self.true_theta)],
+                [np.sin(self.true_theta), np.cos(self.true_theta)],
+            ]
+        )
+
 
 @attr.s(frozen=True)
 class LandmarkVariable:
@@ -101,6 +113,13 @@ class RangeMeasurement:
     var2: str = attr.ib()
     dist: float = attr.ib()
     stddev: float = attr.ib()
+
+    @property
+    def weight(self):
+        """
+        Get the weight of the measurement
+        """
+        return 1 / (self.stddev ** 2)
 
 
 @attr.s(frozen=True)
@@ -208,6 +227,38 @@ class FactorGraphData:
         return len(self.pose_variables)
 
     @property
+    def true_values_vector(self) -> np.ndarray:
+        """
+        returns the true values in a vectorized form
+        """
+        vect: List[float] = []
+
+        # add in pose translations
+        for pose in self.pose_variables:
+            x, y = pose.true_position
+            vect.append(x)
+            vect.append(y)
+
+        # add in landmark positions
+        for pos in self.landmark_variables:
+            x, y = pos.true_position
+            vect.append(x)
+            vect.append(y)
+
+        # add in rotation measurements
+        for pose in self.pose_variables:
+            rot = pose.rotation_matrix.flatten()
+            for v in rot:
+                vect.append(v)
+
+        # add in distance variables
+        for range_measurement in self.range_measurements:
+            vect.append(range_measurement.dist)
+
+        vect.append(1.0)
+        return np.array(vect)
+
+    @property
     def num_translations(self):
         return self.num_poses + self.num_landmarks
 
@@ -260,10 +311,31 @@ class FactorGraphData:
         """
         return np.array([meas.dist for meas in self.range_measurements])
 
-    def get_range_measurement_pose(
-        self, measure: RangeMeasurement
-    ) -> Tuple[PoseVariable, PoseVariable]:
-        """[summary]
+    @property
+    def weighted_dist_measurements_vect(self) -> np.ndarray:
+        """
+        Get of the distance measurements weighted by their precision
+        """
+        return self.dist_measurements_vect * self.measurements_weight_vect
+
+    @property
+    def measurements_weight_vect(self) -> np.ndarray:
+        """
+        Get the weights of the measurements
+        """
+        return np.array([meas.weight for meas in self.range_measurements])
+
+    @property
+    def sum_weighted_measurements_squared(self) -> float:
+        """
+        Get the sum of the squared weighted measurements
+        """
+        weighted_dist_vect = self.weighted_dist_measurements_vect
+        dist_vect = self.dist_measurements_vect
+        return np.dot(weighted_dist_vect, dist_vect)
+
+    def get_range_measurement_pose(self, measure: RangeMeasurement) -> PoseVariable:
+        """Gets the pose associated with the range measurement
 
         Arguments:
             measure (RangeMeasurement): the range measurement
@@ -365,9 +437,7 @@ class FactorGraphData:
 
         return (start, stop)
 
-    def get_range_dist_variable_indices(
-        self, measurement: RangeMeasurement
-    ) -> int:
+    def get_range_dist_variable_indices(self, measurement: RangeMeasurement) -> int:
         """
         Get the index for the distance variable corresponding to
         this measurement in the factor graph
@@ -391,4 +461,3 @@ class FactorGraphData:
         range_idx = (measure_idx) + range_offset
 
         return range_idx
-

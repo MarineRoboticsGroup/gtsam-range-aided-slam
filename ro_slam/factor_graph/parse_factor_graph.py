@@ -3,7 +3,7 @@ from os import listdir, mkdir
 from os.path import isfile, isdir, join, expanduser, dirname
 import numpy as np
 
-from factor_graph import (
+from factor_graph.factor_graph import (
     OdomMeasurement,
     RangeMeasurement,
     PoseVariable,
@@ -59,14 +59,14 @@ def parse_factor_graph_file(filepath: str) -> FactorGraphData:
     odom_measure_header = "Factor SE2RelativeGaussianLikelihoodFactor"
     range_measure_header = "Factor SE2R2RangeGaussianLikelihoodFactor"
     pose_prior_header = "Factor UnarySE2ApproximateGaussianPriorFactor"
-    landmark_prior_header = None  # don't have any of these yet
+    landmark_prior_header = "Landmark"  # don't have any of these yet
 
     pose_vars = []
     landmark_vars = []
     odom_measures = []
     range_measures = []
     pose_priors = []
-    landmark_priors = []
+    landmark_priors: List[LandmarkPrior] = []
     with open(filepath, "r") as f:
         for line in f:
             if line.startswith(pose_var_header):
@@ -92,8 +92,8 @@ def parse_factor_graph_file(filepath: str) -> FactorGraphData:
                 covar_list = [float(x) for x in line_items[8:]]
                 covar = get_covariance_matrix_from_list(covar_list)
                 # assert covar[0, 0] == covar[1, 1]
-                trans_weight = covar[0, 0]
-                rot_weight = covar[2, 2]
+                trans_weight = 1/(covar[0, 0])
+                rot_weight = 1/(covar[2, 2])
                 odom_measures.append(
                     OdomMeasurement(
                         base_pose,
@@ -131,7 +131,7 @@ def parse_factor_graph_file(filepath: str) -> FactorGraphData:
         range_measures,
         pose_priors,
         landmark_priors,
-        2,
+        2
     )
 
 
