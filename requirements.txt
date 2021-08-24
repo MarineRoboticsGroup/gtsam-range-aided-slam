@@ -92,6 +92,7 @@ mistune==0.8.4
 more-itertools==7.2.0
 multiprocess==0.70.9
 mutagen==1.45.1
+mypy==0.910
 mypy-extensions==0.4.3
 nbconvert==5.6.1
 nbformat==4.4.0
@@ -206,11 +207,6 @@ smach==2.0.1
 smach-ros==2.0.1
 smclib==1.8.5
 stem==1.8.0
-tensorboard==2.1.1
-tensorflow-datasets==3.0.0
-tensorflow-estimator==2.1.0
-tensorflow-examples===537a2dc161e17ac3eb6e86068daccf7c2cf93c1b-
-tensorflow-metadata==0.21.2
 termcolor==1.1.0
 terminado==0.8.2
 testpath==0.4.2
@@ -220,8 +216,6 @@ tf2-ros==0.6.5
 toml==0.10.1
 toolz==0.11.1
 topic-tools==1.14.10
-torchaudio==0.8.1
-torchvision==0.9.1+cpu
 tornado==6.0.3
 traitlets==4.3.3
 tubex-lib==3.0.6
@@ -229,8 +223,6 @@ typed-ast==1.4.1
 typing-extensions==3.7.4.3
 urdfdom-py==0.4.5
 vibes==0.2.2
-wcwidth==0.1.7
-webencodings==0.5.1
 Werkzeug==1.0.1
 wrapt==1.12.1
 xacro==1.13.9
