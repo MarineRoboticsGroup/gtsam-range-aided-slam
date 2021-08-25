@@ -18,7 +18,7 @@ jobs:
     - name: Install dependencies
       run: |
         # $CONDA is an environment variable pointing to the root of the miniconda directory
-        $CONDA/bin/conda env update --file env.yml --name base
+        $CONDA/bin/conda env update --file gurobi_conda_export.yml --name base
     - name: mypy on source code
       run: |
-        $CONDA/bin/mypy manhattan/
+        $CONDA/bin/mypy ro_slam/
