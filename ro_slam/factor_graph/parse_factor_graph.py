@@ -3,7 +3,7 @@ from os import listdir, mkdir
 from os.path import isfile, isdir, join, expanduser, dirname
 import numpy as np
 
-from factor_graph.factor_graph import (
+from ro_slam.factor_graph.factor_graph import (
     OdomMeasurement,
     RangeMeasurement,
     PoseVariable,

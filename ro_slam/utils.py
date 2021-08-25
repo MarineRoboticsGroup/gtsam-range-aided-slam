@@ -1,41 +1,6 @@
 import numpy as np
-import cvxpy as cp
-import scipy.linalg as la
+import scipy.linalg as la  # type: ignore
 from typing import List, Tuple
-
-
-def _block_diag(arr_list: List[cp.Variable]) -> cp.Variable:
-    """create a block diagonal matrix from a list of cvxpy matrices"""
-
-    # rows and cols of block diagonal matrix
-    m = np.sum([arr.shape[0] for arr in arr_list])
-    n = np.sum([arr.shape[1] for arr in arr_list])
-
-    # loop to create the list for the bmat function
-    block_list = []  # list for bmat function
-    ind = np.array([0, 0])
-    for arr in arr_list:
-        # index of the end of arr in the block diagonal matrix
-        ind += arr.shape
-
-        # list of one row of blocks
-        horz_list = [arr]
-
-        # block of zeros to the left of arr
-        zblock_l = np.zeros((arr.shape[0], ind[1] - arr.shape[1]))
-        if zblock_l.shape[1] > 0:
-            horz_list.insert(0, zblock_l)
-
-        # block of zeros to the right of arr
-        zblock_r = np.zeros((arr.shape[0], n - ind[1]))
-        if zblock_r.shape[1] > 0:
-            horz_list.append(zblock_r)
-
-        block_list.append(horz_list)
-
-    B = cp.bmat(block_list)
-
-    return B
 
 
 def _print_eigvals(

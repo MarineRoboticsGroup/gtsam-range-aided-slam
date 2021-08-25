@@ -1,13 +1,13 @@
 import numpy as np
 from os.path import expanduser, join
 from typing import List, Tuple
-import matplotlib.pyplot as plt
-import scipy.linalg as la
-import gurobipy as gp
-from gurobipy import GRB
+import matplotlib.pyplot as plt  # type: ignore
+import scipy.linalg as la  # type: ignore
+import gurobipy as gp  # type: ignore
+from gurobipy import GRB  # type: ignore
 
-from factor_graph.parse_factor_graph import parse_factor_graph_file
-from factor_graph.factor_graph import (
+from ro_slam.factor_graph.parse_factor_graph import parse_factor_graph_file
+from ro_slam.factor_graph.factor_graph import (
     OdomMeasurement,
     RangeMeasurement,
     PoseVariable,
@@ -16,8 +16,7 @@ from factor_graph.factor_graph import (
     LandmarkPrior,
     FactorGraphData,
 )
-from utils import (
-    _block_diag,
+from ro_slam.utils import (
     _print_eigvals,
     _check_is_laplacian,
     _check_symmetric,

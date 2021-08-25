@@ -92,5 +92,6 @@ dependencies:
     - pre-commit==2.14.0
     - pyyaml==5.4.1
     - regex==2021.8.21
+    - types-attrs==19.1.0
     - virtualenv==20.7.2
 prefix: /home/alan/anaconda3/envs/gurobi_qcqp
