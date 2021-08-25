@@ -74,7 +74,7 @@ def _check_symmetric(mat):
 
 
 def _check_psd(mat: np.ndarray):
-    """Checks that a matrix is positive semi-definite """
+    """Checks that a matrix is positive semi-definite"""
     assert isinstance(mat, np.ndarray)
     assert (
         np.min(la.eigvals(mat)) + 1e-1 >= 0.0
