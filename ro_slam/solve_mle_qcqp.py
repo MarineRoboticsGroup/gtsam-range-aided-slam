@@ -1,9 +1,10 @@
-import cvxpy as cp
 import numpy as np
 from os.path import expanduser, join
 from typing import List, Tuple
 import matplotlib.pyplot as plt
 import scipy.linalg as la
+import gurobipy as gp
+from gurobipy import GRB
 
 from factor_graph.parse_factor_graph import parse_factor_graph_file
 from factor_graph.factor_graph import (
@@ -24,10 +25,6 @@ from utils import (
     _general_kron,
     _matprint_block,
 )
-
-from qcqp.qcqp import QCQP
-from qcqp.settings import COORD_DESCENT, ADMM, DCCP, IPOPT  # improve
-from qcqp.settings import RANDOM, SDR, SPECTRAL, FIXED  # suggest
 
 
 def _get_range_constraint_matrices(
@@ -162,16 +159,15 @@ def solve_mle_problem(data: FactorGraphData):
     _check_psd(D)
     full_data_matrix = la.block_diag(Q, D)
     _check_psd(full_data_matrix)
-    x = cp.Variable(full_data_matrix.shape[0])
-    objective = cp.quad_form(x, full_data_matrix)
+    raise NotImplementedError
 
     # form constraints
-    constraints: List[cp.Constraint] = []
+    constraints: List[np.ndarray] = []
     range_constraint_matrices: List[np.ndarray] = _get_range_constraint_matrices(data)
     for const_matrix in range_constraint_matrices:
-        # plt.spy(const_matrix)
-        # plt.show()
-        constraints.append(cp.quad_form(x, const_matrix) == 0)
+        plt.spy(const_matrix)
+        plt.show()
+        # constraints.append(cp.quad_form(x, const_matrix) == 0)
 
     (
         ones_rotation_constraints,
@@ -180,44 +176,19 @@ def solve_mle_problem(data: FactorGraphData):
     assert len(ones_rotation_constraints) > 0
     assert len(zeros_rotation_constraints) > 0
     for const_matrix in ones_rotation_constraints:
-        # plt.spy(const_matrix)
-        # plt.show()
-        constraints.append(cp.quad_form(x, const_matrix) == 1)
+        plt.spy(const_matrix)
+        plt.show()
+        # constraints.append(cp.quad_form(x, const_matrix) == 1)
 
     for const_matrix in zeros_rotation_constraints:
-        # plt.spy(const_matrix)
-        # plt.plot([0, 90], [0, 90])
-        # plt.show()
-        constraints.append(cp.quad_form(x, const_matrix) == 0)
+        plt.spy(const_matrix)
+        plt.plot([0, 90], [0, 90])
+        plt.show()
+        # constraints.append(cp.quad_form(x, const_matrix) == 0)
 
-    constraints.append(cp.square(x[-1]) == 1)
+    # constraints.append(cp.square(x[-1]) == 1)
     # form problem
-    prob = cp.Problem(cp.Minimize(objective), constraints)
-
-    # plug into QCQP framework
-    qcqp = QCQP(prob)
-
-    for i in range(100):
-        # Solve the SDP relaxation and get a starting point to a local method
-        # suggest_methods = [RANDOM, SDR, SPECTRAL, FIXED]
-        # qcqp.suggest(SDR)
-        # suggest_cost, suggest_viol = qcqp.suggest(SDR)
-        # suggest_cost = qcqp.sdr_bound
-        suggest_cost, suggest_viol = qcqp.suggest(FIXED, fixed_guess=data.true_values_vector)
-        # print("SDR lower bound: %.3f" % qcqp.sdr_bound)
-        # qcqp.suggest(SPECTRAL)
-        # print("SDR lower bound: %.3f" % qcqp.spectral_bound)
-
-        # Attempt to improve the starting point given by the suggest method
-        # improve_methods = [COORD_DESCENT, ADMM, DCCP, IPOPT]
-        f_cd, v_cd = qcqp.improve(COORD_DESCENT)
-        # f_cd, v_cd = qcqp.improve(ADMM)
-        # f_cd, v_cd = qcqp.improve(DCCP)
-        # f_cd, v_cd = qcqp.improve(IPOPT)
-        print("Coordinate descent: objective %.3f, violation %.3f" % (f_cd, v_cd))
-        print(f"Optimality Gap {f_cd - suggest_cost}")
-        print()
-        # print(x.value)
+    # prob = cp.Problem(cp.Minimize(objective), constraints)
 
 
 def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
@@ -366,7 +337,7 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
         """
         mat_dim = data.num_range_measurements + 1
         D = np.zeros((mat_dim, mat_dim))
-        D[0:mat_dim-1, 0:mat_dim-1] = np.diag(data.measurements_weight_vect)
+        D[0 : mat_dim - 1, 0 : mat_dim - 1] = np.diag(data.measurements_weight_vect)
 
         noisy_dist_vect = data.weighted_dist_measurements_vect
         D[0 : mat_dim - 1, mat_dim - 1] = -noisy_dist_vect
@@ -410,13 +381,13 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
     assert all(
         x == 0 for x in M[num_trans:, num_trans : num_trans + (d * num_pose)].flatten()
     )
-    M[:num_trans, num_trans :] = V
+    M[:num_trans, num_trans:] = V
 
     # add V.T to lower left block
     assert all(
         x == 0 for x in M[num_trans : num_trans + (d * num_pose), :num_trans].flatten()
     )
-    M[num_trans : , :num_trans] = V.T
+    M[num_trans:, :num_trans] = V.T
 
     # add connection laplacian to bottom right block
     assert all(x == 0 for x in M[num_trans:, num_trans:].flatten())
