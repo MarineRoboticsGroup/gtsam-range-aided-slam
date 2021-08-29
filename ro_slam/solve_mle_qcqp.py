@@ -144,6 +144,57 @@ def _get_rotation_constraint_matrices(
     return ones_constraints, zeros_constraints
 
 
+def _unwrap_state_vector(vec, data: FactorGraphData) -> None:
+    """unwrap the state vector into the corresponding robot poses and landmark
+    states"""
+    d = data.dimension
+    num_poses = data.num_poses
+    num_landmarks = data.num_landmarks
+
+    est_poses: List[PoseVariable] = []
+    est_landmarks: List[LandmarkVariable] = []
+
+    for gt_pose in data.pose_variables:
+        trans_start_idx, trans_end_idx = data.get_pose_translation_variable_indices(
+            gt_pose
+        )
+        est_trans = vec[trans_start_idx:trans_end_idx]
+        est_trans = (est_trans[0], est_trans[1])
+
+        rot_start_idx, rot_end_idx = data.get_pose_rotation_variable_indices(gt_pose)
+        est_rotation = vec[rot_start_idx:rot_end_idx].reshape(2, 2)
+
+        I_check = est_rotation @ est_rotation.T
+        assert (I_check == np.eye(2)).all(), "Is not orthogonal group"
+        assert la.det(est_rotation) == 1, f"Not a rotation {est_rotation}"
+
+        cos_theta = est_rotation[0, 0]
+        sin_theta = est_rotation[1, 0]
+        assert (
+            est_rotation[0, 1] == -est_rotation[1, 0]
+        ), f"bad rotation matrix: {est_rotation}"
+        assert est_rotation[0, 0] == est_rotation[1, 1]
+        est_theta = np.arctan2(sin_theta, cos_theta)
+
+        est_pose_name = gt_pose.name + "_est"
+
+        estimated_pose = PoseVariable(est_pose_name, est_trans, est_theta)
+        est_poses.append(estimated_pose)
+
+    for gt_landmark in data.landmark_variables:
+        start_idx, end_idx = data.get_landmark_translation_variable_indices(gt_landmark)
+        est_trans = vec[trans_start_idx:trans_end_idx]
+        est_trans = (est_trans[0], est_trans[1])
+        est_landmark_name = gt_landmark.name + "_est"
+        est_landmarks.append(LandmarkVariable(est_landmark_name, est_trans))
+
+    for pose in est_poses:
+        print(pose)
+
+    for landmark in est_landmarks:
+        print(landmark)
+
+
 def solve_mle_problem(data: FactorGraphData):
     """
     Takes the data describing the problem and returns the MLE solution to the
@@ -152,42 +203,83 @@ def solve_mle_problem(data: FactorGraphData):
     args:
         data (FactorGraphData): the data describing the problem
     """
+    model = gp.Model("qp")
+    model.params.nonconvex = 2
+    model.params.feasibility_tol = 1e-2
+    # model.params.time_limit = 100.0
+
     # form objective function
     Q, D = _get_data_matrix(data)
     _check_psd(Q)
     _check_psd(D)
     full_data_matrix = la.block_diag(Q, D)
+
+    true_vals = data.true_values_vector
+    print(f"true_vals: {true_vals}")
+    print(f"Cost: {true_vals.T @full_data_matrix @ true_vals}")
+    print(f"eigvals: {la.eigvals(full_data_matrix)}")
+    # full_data_matrix /= 1e6
+
     _check_psd(full_data_matrix)
-    raise NotImplementedError
+    state_vector = model.addMVar(len(full_data_matrix), name="state")
+    obj = state_vector @ full_data_matrix @ state_vector
+    model.setObjective(obj)
 
     # form constraints
-    constraints: List[np.ndarray] = []
-    range_constraint_matrices: List[np.ndarray] = _get_range_constraint_matrices(data)
-    for const_matrix in range_constraint_matrices:
-        plt.spy(const_matrix)
-        plt.show()
-        # constraints.append(cp.quad_form(x, const_matrix) == 0)
+    model.addConstr(state_vector[-1] == 1)  # last index is either 1 or -1
+    model.addConstr(state_vector[0] == 0)  # first index is 0
+    model.addConstr(state_vector[1] == 0)  # first index is 0
 
+    # add the constraints for the distance/translation relationship
+    range_constraint_matrices: List[np.ndarray] = _get_range_constraint_matrices(data)
+    for i, const_matrix in enumerate(range_constraint_matrices):
+        assert (
+            abs(true_vals.T @ const_matrix @ true_vals) < 1e-4
+        ), f"Range constraint {i}: {true_vals.T @ const_matrix @ true_vals}"
+        model.addConstr(
+            state_vector @ const_matrix @ state_vector <= 0,
+            name=f"range_constraint_{i}",
+        )
+
+    # add the constraints for the rotations
     (
         ones_rotation_constraints,
         zeros_rotation_constraints,
     ) = _get_rotation_constraint_matrices(data)
     assert len(ones_rotation_constraints) > 0
     assert len(zeros_rotation_constraints) > 0
-    for const_matrix in ones_rotation_constraints:
-        plt.spy(const_matrix)
-        plt.show()
-        # constraints.append(cp.quad_form(x, const_matrix) == 1)
+    for i, const_matrix in enumerate(ones_rotation_constraints):
+        assert (
+            abs(true_vals.T @ const_matrix @ true_vals - 1) < 1e-5
+        ), f"{true_vals.T @ const_matrix @ true_vals}"
+        model.addConstr(
+            state_vector @ const_matrix @ state_vector == 1,
+            name=f"ones_rotation_constraint_{i}",
+        )
 
-    for const_matrix in zeros_rotation_constraints:
-        plt.spy(const_matrix)
-        plt.plot([0, 90], [0, 90])
-        plt.show()
-        # constraints.append(cp.quad_form(x, const_matrix) == 0)
+    for i, const_matrix in enumerate(zeros_rotation_constraints):
+        assert (
+            abs(true_vals.T @ const_matrix @ true_vals) < 1e-5
+        ), f"{true_vals.T @ const_matrix @ true_vals}"
+        model.addConstr(
+            state_vector @ const_matrix @ state_vector == 0,
+            name=f"zeros_rotation_constraint_{i}",
+        )
 
-    # constraints.append(cp.square(x[-1]) == 1)
-    # form problem
-    # prob = cp.Problem(cp.Minimize(objective), constraints)
+    # try to warm start
+    state_vector.PStart = data.true_values_vector
+    state_vector.VarHintVal = data.true_values_vector
+    state_vector.Start = data.true_values_vector
+
+    # perform optimization
+    model.optimize()
+
+    # extract the solution
+    for v in model.getVars():
+        print("%s %g" % (v.varName, v.x))
+
+    print("Obj: %g" % obj.getValue())
+    _unwrap_state_vector(state_vector.X, data)
 
 
 def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:

@@ -247,7 +247,7 @@ class FactorGraphData:
 
         # add in rotation measurements
         for pose in self.pose_variables:
-            rot = pose.rotation_matrix.flatten()
+            rot = pose.rotation_matrix.T.flatten()
             for v in rot:
                 vect.append(v)
 
