@@ -1,6 +1,6 @@
 import numpy as np
 from os.path import expanduser, join
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import matplotlib.pyplot as plt  # type: ignore
 import scipy.linalg as la  # type: ignore
 import gurobipy as gp  # type: ignore
@@ -195,6 +195,40 @@ def _unwrap_state_vector(vec, data: FactorGraphData) -> None:
         print(landmark)
 
 
+def _gurobi_vector_difference(
+    vec1: List[gp.Var], vec2: List[gp.Var]
+) -> List[gp.LinExpr]:
+    """Takes the difference between two lists of variables representing vectors
+    and returns a list of linear expressions representing the difference
+
+    Args:
+        vec1 (List[gp.Var]): the first vector
+        vec2 (List[gp.Var]): the second vector
+
+    Returns:
+        List[gp.LinExpr]: the componentwise difference between the two vectors
+    """
+    assert len(vec1) == len(vec2)
+    diff = []
+    for i in range(len(vec1)):
+        diff.append(vec1[i] - vec2[i])
+
+    return diff
+
+
+def _vector_norm_squared(vec: List[gp.LinExpr]) -> List[gp.QuadExpr]:
+    """Returns the squared 2-norm of a vector represented as a list of
+    linear expressions
+
+    Args:
+        vec (List[gp.LinExpr]): the vector
+
+    Returns:
+        List[gp.QuadExpr]: [description]
+    """
+    return gp.quicksum([vec[i] * vec[i] for i in range(len(vec))])
+
+
 def solve_mle_problem(data: FactorGraphData):
     """
     Takes the data describing the problem and returns the MLE solution to the
@@ -203,10 +237,28 @@ def solve_mle_problem(data: FactorGraphData):
     args:
         data (FactorGraphData): the data describing the problem
     """
+
+    # def _add_translation_cost(model, t_i, t_j, R_i, odom_measure):
+    #     assert len(t_i.shape) == 1 and len(t_j.shape) == 1
+    #     assert (t_i.shape[0]) == (t_j.shape[0]) == R_i.shape[0] == R_i.shape[1]
+    #     trans_weight = odom_measure.translation_weight
+    #     trans_measure = odom_measure.translation_vector
+
+    #     cost = 0
+    #     for k in range(t_i.shape[0]):
+    #         diff = (t_i[k] + 0) - (t_j[k])
+    #         diff = t_i[k] - t_j[k] - (R_i[k, :] @ trans_measure)
+    #         cost += (diff @ np.eye(2) @ diff)
+
+    #     print(cost)
+    #     return cost
+
     model = gp.Model("qp")
     model.params.nonconvex = 2
     model.params.feasibility_tol = 1e-2
+    model.params.optimality_tol = 1e-9
     # model.params.time_limit = 100.0
+    obj = 0
 
     # form objective function
     Q, D = _get_data_matrix(data)
@@ -216,60 +268,108 @@ def solve_mle_problem(data: FactorGraphData):
 
     true_vals = data.true_values_vector
     print(f"true_vals: {true_vals}")
-    print(f"Cost: {true_vals.T @full_data_matrix @ true_vals}")
+    print(f"Cost of true: {true_vals.T @full_data_matrix @ true_vals}")
     print(f"eigvals: {la.eigvals(full_data_matrix)}")
-    # full_data_matrix /= 1e6
 
     _check_psd(full_data_matrix)
     state_vector = model.addMVar(len(full_data_matrix), name="state")
-    obj = state_vector @ full_data_matrix @ state_vector
-    model.setObjective(obj)
 
-    # form constraints
-    model.addConstr(state_vector[-1] == 1)  # last index is either 1 or -1
-    model.addConstr(state_vector[0] == 0)  # first index is 0
-    model.addConstr(state_vector[1] == 0)  # first index is 0
+    translations: List[List[gp.Var]] = []
+    rotations: List[List[gp.MVar]] = []
+    for pose_idx, pose in enumerate(data.pose_variables):
+        # add new translation variables d-dimensional vector
+        translations.append([])
+        for i in range(data.dimension):
+            if i == 0:
+                new_trans = model.addVar(name=f"translation_x_p{pose_idx}")
+            elif i == 1:
+                new_trans = model.addVar(name=f"translation_y_p{pose_idx}")
+            elif i == 2:
+                new_trans = model.addVar(name=f"translation_z_p{pose_idx}")
+            translations[-1].append(new_trans)
 
-    # add the constraints for the distance/translation relationship
-    range_constraint_matrices: List[np.ndarray] = _get_range_constraint_matrices(data)
-    for i, const_matrix in enumerate(range_constraint_matrices):
-        assert (
-            abs(true_vals.T @ const_matrix @ true_vals) < 1e-4
-        ), f"Range constraint {i}: {true_vals.T @ const_matrix @ true_vals}"
+        # add new rotation variable (dxd rotation matrix)
+        rotations.append([])
+        for i in range(data.dimension):
+            for ii in range(data.dimension):
+                new_rot = model.addVar(name=f"rotation_{i}{ii}_p{pose_idx}")
+                rotations[-1].append(new_rot)
+
+        # add in rotation constraint (must be in orthogonal group)
+        I_d = np.eye(data.dimension)
+        cnt = 0
+        for i in range(data.dimension):
+            # this is the i-th column of the rotation matrix
+            col_i = gp.MVar(
+                [rotations[-1][i + k * data.dimension] for k in range(data.dimension)]
+            )
+            for j in range(i, data.dimension):
+                # this is the j-th column of the rotation matrix
+                col_j = gp.MVar(
+                    [
+                        rotations[-1][j + k * data.dimension]
+                        for k in range(data.dimension)
+                    ]
+                )
+                model.addConstr(
+                    col_i @ col_j == I_d[i, j],
+                    name=f"rot_constr_{pose_idx}_{cnt}",
+                )
+                cnt += 1
+
+    landmarks: List[List[gp.Var]] = []
+    for landmark_idx, landmark in enumerate(data.landmark_variables):
+        landmarks.append([])
+        for i in range(data.dimension):
+            if i == 0:
+                new_trans = model.addVar(name=f"landmark_x_l{landmark_idx}")
+            elif i == 1:
+                new_trans = model.addVar(name=f"landmark_y_l{landmark_idx}")
+            elif i == 2:
+                new_trans = model.addVar(name=f"landmark_z_l{landmark_idx}")
+            else:
+                raise NotImplementedError
+            landmarks[-1].append(new_trans)
+
+    distances: Dict[Tuple[int, int], gp.Var] = {}
+    for dist_idx, range_measure in enumerate(data.range_measurements):
+        pose_idx = range_measure.pose_idx
+        landmark_idx = range_measure.landmark_idx
+
+        # create distance variable
+        dist_key = (pose_idx, landmark_idx)
+        distances[dist_key] = model.addVar(name=f"d_p{pose_idx}_l{landmark_idx}")
+
+        # create distance constraint ||t_i - l_j||^2 <= d_ij^2
+        trans_i = translations[pose_idx]
+        land_j = landmarks[landmark_idx]
+        diff = _gurobi_vector_difference(trans_i, land_j)
         model.addConstr(
-            state_vector @ const_matrix @ state_vector <= 0,
-            name=f"range_constraint_{i}",
+            _vector_norm_squared(diff) <= distances[dist_key] * distances[dist_key]
         )
 
-    # add the constraints for the rotations
-    (
-        ones_rotation_constraints,
-        zeros_rotation_constraints,
-    ) = _get_rotation_constraint_matrices(data)
-    assert len(ones_rotation_constraints) > 0
-    assert len(zeros_rotation_constraints) > 0
-    for i, const_matrix in enumerate(ones_rotation_constraints):
-        assert (
-            abs(true_vals.T @ const_matrix @ true_vals - 1) < 1e-5
-        ), f"{true_vals.T @ const_matrix @ true_vals}"
-        model.addConstr(
-            state_vector @ const_matrix @ state_vector == 1,
-            name=f"ones_rotation_constraint_{i}",
-        )
+        # add in distance cost component
+        dist_diff = distances[dist_key] - range_measure.dist  # distance difference
+        obj += dist_diff * dist_diff * range_measure.weight
 
-    for i, const_matrix in enumerate(zeros_rotation_constraints):
-        assert (
-            abs(true_vals.T @ const_matrix @ true_vals) < 1e-5
-        ), f"{true_vals.T @ const_matrix @ true_vals}"
-        model.addConstr(
-            state_vector @ const_matrix @ state_vector == 0,
-            name=f"zeros_rotation_constraint_{i}",
-        )
+    for i, odom_measure in enumerate(data.odom_measurements):
 
-    # try to warm start
-    state_vector.PStart = data.true_values_vector
-    state_vector.VarHintVal = data.true_values_vector
-    state_vector.Start = data.true_values_vector
+        # the indices of the related poses in the odometry measurement
+        i_idx = odom_measure.base_pose_idx
+        j_idx = odom_measure.to_pose_idx
+
+        # translation component of cost
+        trans_weight = odom_measure.translation_weight
+        trans_measure = odom_measure.translation_vector
+        t_i = translations[i_idx]
+        t_j = translations[j_idx]
+        R_i = rotations[i_idx]
+        # obj += _translation_cost(t_i, t_j, R_i, odom_measure)
+
+        rot_weight = odom_measure.rotation_weight
+        rot_measure = odom_measure.rotation_matrix
+        # diff_rot_matrix = rotations[j_idx] - rotations[i_idx] @ rot_measure
+        # obj += rot_weight * np.linalg.norm(diff_rot_matrix, "fro") ** 2
 
     # perform optimization
     model.optimize()
@@ -278,8 +378,8 @@ def solve_mle_problem(data: FactorGraphData):
     for v in model.getVars():
         print("%s %g" % (v.varName, v.x))
 
-    print("Obj: %g" % obj.getValue())
-    _unwrap_state_vector(state_vector.X, data)
+    # print("Obj: %g" % obj.getValue())
+    # _unwrap_state_vector(state_vector.X, data)
 
 
 def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
@@ -302,9 +402,9 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
             data (FactorGraphData): the data describing the problem
         """
         L = np.zeros((data.num_translations, data.num_translations))
-        for measure in data.odometry_measurements:
-            i = measure.base_pose_index
-            j = measure.to_pose_index
+        for measure in data.odom_measurements:
+            i = measure.base_pose_idx
+            j = measure.to_pose_idx
             weight = measure.translation_weight
 
             L[i, i] += weight
@@ -331,9 +431,9 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
         """
         L = np.zeros((d * data.num_poses, d * data.num_poses))
         I_d = np.eye(d)
-        for measure in data.odometry_measurements:
-            i = measure.base_pose_index
-            j = measure.to_pose_index
+        for measure in data.odom_measurements:
+            i = measure.base_pose_idx
+            j = measure.to_pose_idx
             weight = measure.rotation_weight
 
             i_idx = i * dim
@@ -372,10 +472,10 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
         """
         V = np.zeros((data.num_translations, dim * data.num_poses))
         cnt = 0
-        for measure in data.odometry_measurements:
+        for measure in data.odom_measurements:
             cnt += 1
-            i = measure.base_pose_index
-            j = measure.to_pose_index
+            i = measure.base_pose_idx
+            j = measure.to_pose_idx
             assert not (i == j)
             weight = measure.translation_weight
             vect = measure.translation_vector
@@ -402,8 +502,8 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
             np.ndarray: the weighted translation matrix
         """
         L = np.zeros((dim * data.num_poses, dim * data.num_poses))
-        for measure in data.odometry_measurements:
-            i = measure.base_pose_index
+        for measure in data.odom_measurements:
+            i = measure.base_pose_idx
             i_idx = i * dim
             weight = measure.translation_weight
 

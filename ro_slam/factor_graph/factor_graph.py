@@ -46,7 +46,7 @@ class LandmarkVariable:
 @attr.s(frozen=True)
 class OdomMeasurement:
     """
-    An odometry measurement
+    An odom measurement
 
     base_pose (str): the name of the base pose which the measurement is in the
         reference frame of
@@ -84,14 +84,14 @@ class OdomMeasurement:
         return np.array([self.x, self.y])
 
     @property
-    def base_pose_index(self) -> int:
+    def base_pose_idx(self) -> int:
         """
         Get the index of the base pose
         """
         return int(self.base_pose[1:])
 
     @property
-    def to_pose_index(self) -> int:
+    def to_pose_idx(self) -> int:
         """
         Get the index of the to pose
         """
@@ -120,6 +120,20 @@ class RangeMeasurement:
         Get the weight of the measurement
         """
         return 1 / (self.stddev ** 2)
+
+    @property
+    def pose_idx(self):
+        """
+        Get the index of the pose
+        """
+        return int(self.var1[1:])
+
+    @property
+    def landmark_idx(self):
+        """
+        Get the index of the landmark
+        """
+        return int(self.var2[1:])
 
 
 @attr.s(frozen=True)
@@ -163,7 +177,7 @@ class FactorGraphData:
     Args:
         pose_variables (List[PoseVariable]): a list of the pose variables
         landmark_variables (List[LandmarkVariable]): a list of the landmarks
-        odometry_measurements (List[OdomMeasurement]): a list of odometry
+        odom_measurements (List[OdomMeasurement]): a list of odom
             measurements
         range_measurements (List[RangeMeasurement]): a list of range
             measurements
@@ -173,7 +187,7 @@ class FactorGraphData:
 
     pose_variables: List[PoseVariable] = attr.ib()
     landmark_variables: List[LandmarkVariable] = attr.ib()
-    odometry_measurements: List[OdomMeasurement] = attr.ib()
+    odom_measurements: List[OdomMeasurement] = attr.ib()
     range_measurements: List[RangeMeasurement] = attr.ib()
     pose_priors: List[PosePrior] = attr.ib()
     landmark_priors: List[LandmarkPrior] = attr.ib()
@@ -194,9 +208,9 @@ class FactorGraphData:
             line += f"{x}\n"
         line += "\n"
 
-        # add odometry measurements
-        line += f"Odometry Measurements: {len(self.odometry_measurements)}\n"
-        for x in self.odometry_measurements:
+        # add odom measurements
+        line += f"odom Measurements: {len(self.odom_measurements)}\n"
+        for x in self.odom_measurements:
             line += f"{x}\n"
         line += "\n"
 
@@ -295,7 +309,7 @@ class FactorGraphData:
 
     @property
     def num_odom_measurements(self):
-        return len(self.odometry_measurements)
+        return len(self.odom_measurements)
 
     @property
     def num_total_measurements(self):
