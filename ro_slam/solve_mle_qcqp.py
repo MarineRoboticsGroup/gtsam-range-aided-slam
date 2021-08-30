@@ -6,6 +6,17 @@ import scipy.linalg as la  # type: ignore
 import gurobipy as gp  # type: ignore
 from gurobipy import GRB  # type: ignore
 
+from ro_slam.gurobi_utils import (
+    GurobiVarMatrix,
+    add_rotation_var,
+    add_translation_var,
+    pin_first_pose,
+    add_pose_variables,
+    add_landmark_variables,
+    add_distance_variables,
+    get_distances_cost,
+    get_odom_cost,
+)
 from ro_slam.factor_graph.parse_factor_graph import parse_factor_graph_file
 from ro_slam.factor_graph.factor_graph import (
     OdomMeasurement,
@@ -122,7 +133,7 @@ def _get_rotation_constraint_matrices(
     for pose in data.pose_variables:
         start_idx, end_idx = data.get_pose_rotation_variable_indices(pose)
 
-        # step by 'd' every time to access the 'd'x'd' subblocks
+        # step by 'd' every time to access the 'd' x 'd' subblocks
         # we are adding the quadratic constraints that equal one here
         for i in range(start_idx, end_idx, d):
             E_iuv_ones = np.zeros((mat_dim, mat_dim))
@@ -147,6 +158,7 @@ def _get_rotation_constraint_matrices(
 def _unwrap_state_vector(vec, data: FactorGraphData) -> None:
     """unwrap the state vector into the corresponding robot poses and landmark
     states"""
+    raise NotImplementedError("Not sure if this works right now?")
     d = data.dimension
     num_poses = data.num_poses
     num_landmarks = data.num_landmarks
@@ -195,40 +207,6 @@ def _unwrap_state_vector(vec, data: FactorGraphData) -> None:
         print(landmark)
 
 
-def _gurobi_vector_difference(
-    vec1: List[gp.Var], vec2: List[gp.Var]
-) -> List[gp.LinExpr]:
-    """Takes the difference between two lists of variables representing vectors
-    and returns a list of linear expressions representing the difference
-
-    Args:
-        vec1 (List[gp.Var]): the first vector
-        vec2 (List[gp.Var]): the second vector
-
-    Returns:
-        List[gp.LinExpr]: the componentwise difference between the two vectors
-    """
-    assert len(vec1) == len(vec2)
-    diff = []
-    for i in range(len(vec1)):
-        diff.append(vec1[i] - vec2[i])
-
-    return diff
-
-
-def _vector_norm_squared(vec: List[gp.LinExpr]) -> List[gp.QuadExpr]:
-    """Returns the squared 2-norm of a vector represented as a list of
-    linear expressions
-
-    Args:
-        vec (List[gp.LinExpr]): the vector
-
-    Returns:
-        List[gp.QuadExpr]: [description]
-    """
-    return gp.quicksum([vec[i] * vec[i] for i in range(len(vec))])
-
-
 def solve_mle_problem(data: FactorGraphData):
     """
     Takes the data describing the problem and returns the MLE solution to the
@@ -237,25 +215,9 @@ def solve_mle_problem(data: FactorGraphData):
     args:
         data (FactorGraphData): the data describing the problem
     """
-
-    # def _add_translation_cost(model, t_i, t_j, R_i, odom_measure):
-    #     assert len(t_i.shape) == 1 and len(t_j.shape) == 1
-    #     assert (t_i.shape[0]) == (t_j.shape[0]) == R_i.shape[0] == R_i.shape[1]
-    #     trans_weight = odom_measure.translation_weight
-    #     trans_measure = odom_measure.translation_vector
-
-    #     cost = 0
-    #     for k in range(t_i.shape[0]):
-    #         diff = (t_i[k] + 0) - (t_j[k])
-    #         diff = t_i[k] - t_j[k] - (R_i[k, :] @ trans_measure)
-    #         cost += (diff @ np.eye(2) @ diff)
-
-    #     print(cost)
-    #     return cost
-
     model = gp.Model("qp")
     model.params.nonconvex = 2
-    model.params.feasibility_tol = 1e-2
+    # model.params.feasibility_tol = 1e-2
     model.params.optimality_tol = 1e-9
     # model.params.time_limit = 100.0
     obj = 0
@@ -267,116 +229,36 @@ def solve_mle_problem(data: FactorGraphData):
     full_data_matrix = la.block_diag(Q, D)
 
     true_vals = data.true_values_vector
-    print(f"true_vals: {true_vals}")
-    print(f"Cost of true: {true_vals.T @full_data_matrix @ true_vals}")
-    print(f"eigvals: {la.eigvals(full_data_matrix)}")
 
     _check_psd(full_data_matrix)
-    state_vector = model.addMVar(len(full_data_matrix), name="state")
 
-    translations: List[List[gp.Var]] = []
-    rotations: List[List[gp.MVar]] = []
-    for pose_idx, pose in enumerate(data.pose_variables):
-        # add new translation variables d-dimensional vector
-        translations.append([])
-        for i in range(data.dimension):
-            if i == 0:
-                new_trans = model.addVar(name=f"translation_x_p{pose_idx}")
-            elif i == 1:
-                new_trans = model.addVar(name=f"translation_y_p{pose_idx}")
-            elif i == 2:
-                new_trans = model.addVar(name=f"translation_z_p{pose_idx}")
-            translations[-1].append(new_trans)
+    translations, rotations = add_pose_variables(model, data)
+    landmarks = add_landmark_variables(model, data)
+    distances = add_distance_variables(model, data, translations, landmarks)
 
-        # add new rotation variable (dxd rotation matrix)
-        rotations.append([])
-        for i in range(data.dimension):
-            for ii in range(data.dimension):
-                new_rot = model.addVar(name=f"rotation_{i}{ii}_p{pose_idx}")
-                rotations[-1].append(new_rot)
+    obj += get_distances_cost(distances, data)
+    obj += get_odom_cost(translations, rotations, data)
 
-        # add in rotation constraint (must be in orthogonal group)
-        I_d = np.eye(data.dimension)
-        cnt = 0
-        for i in range(data.dimension):
-            # this is the i-th column of the rotation matrix
-            col_i = gp.MVar(
-                [rotations[-1][i + k * data.dimension] for k in range(data.dimension)]
-            )
-            for j in range(i, data.dimension):
-                # this is the j-th column of the rotation matrix
-                col_j = gp.MVar(
-                    [
-                        rotations[-1][j + k * data.dimension]
-                        for k in range(data.dimension)
-                    ]
-                )
-                model.addConstr(
-                    col_i @ col_j == I_d[i, j],
-                    name=f"rot_constr_{pose_idx}_{cnt}",
-                )
-                cnt += 1
+    # add in term to move landmarks to their true locations
+    for i, j in distances.keys():
+        x_i = translations[i]
+        l_j = landmarks[j]
+        diff = x_i - l_j
+        dist_ij = distances[(i, j)]
+        # obj += dist_ij * dist_ij - diff.frob_norm_squared
 
-    landmarks: List[List[gp.Var]] = []
-    for landmark_idx, landmark in enumerate(data.landmark_variables):
-        landmarks.append([])
-        for i in range(data.dimension):
-            if i == 0:
-                new_trans = model.addVar(name=f"landmark_x_l{landmark_idx}")
-            elif i == 1:
-                new_trans = model.addVar(name=f"landmark_y_l{landmark_idx}")
-            elif i == 2:
-                new_trans = model.addVar(name=f"landmark_z_l{landmark_idx}")
-            else:
-                raise NotImplementedError
-            landmarks[-1].append(new_trans)
-
-    distances: Dict[Tuple[int, int], gp.Var] = {}
-    for dist_idx, range_measure in enumerate(data.range_measurements):
-        pose_idx = range_measure.pose_idx
-        landmark_idx = range_measure.landmark_idx
-
-        # create distance variable
-        dist_key = (pose_idx, landmark_idx)
-        distances[dist_key] = model.addVar(name=f"d_p{pose_idx}_l{landmark_idx}")
-
-        # create distance constraint ||t_i - l_j||^2 <= d_ij^2
-        trans_i = translations[pose_idx]
-        land_j = landmarks[landmark_idx]
-        diff = _gurobi_vector_difference(trans_i, land_j)
-        model.addConstr(
-            _vector_norm_squared(diff) <= distances[dist_key] * distances[dist_key]
-        )
-
-        # add in distance cost component
-        dist_diff = distances[dist_key] - range_measure.dist  # distance difference
-        obj += dist_diff * dist_diff * range_measure.weight
-
-    for i, odom_measure in enumerate(data.odom_measurements):
-
-        # the indices of the related poses in the odometry measurement
-        i_idx = odom_measure.base_pose_idx
-        j_idx = odom_measure.to_pose_idx
-
-        # translation component of cost
-        trans_weight = odom_measure.translation_weight
-        trans_measure = odom_measure.translation_vector
-        t_i = translations[i_idx]
-        t_j = translations[j_idx]
-        R_i = rotations[i_idx]
-        # obj += _translation_cost(t_i, t_j, R_i, odom_measure)
-
-        rot_weight = odom_measure.rotation_weight
-        rot_measure = odom_measure.rotation_matrix
-        # diff_rot_matrix = rotations[j_idx] - rotations[i_idx] @ rot_measure
-        # obj += rot_weight * np.linalg.norm(diff_rot_matrix, "fro") ** 2
+    # pin first pose at origin
+    pin_first_pose(translations[0], rotations[0])
 
     # perform optimization
+    model.setObjective(obj, gp.GRB.MINIMIZE)
     model.optimize()
 
     # extract the solution
     for v in model.getVars():
-        print("%s %g" % (v.varName, v.x))
+        if "translation" in v.varName or "land" in v.varName:
+            print("%s %g" % (v.varName, v.x))
+        # print("%s %g" % (v.varName, v.x))
 
     # print("Obj: %g" % obj.getValue())
     # _unwrap_state_vector(state_vector.X, data)
@@ -479,7 +361,7 @@ def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
             assert not (i == j)
             weight = measure.translation_weight
             vect = measure.translation_vector
-            assert vect.shape == (dim,)
+            assert vect.shape == (dim,) or vect.shape == (dim, 1)
 
             V[i, dim * i : dim * (i + 1)] += weight * vect
 
