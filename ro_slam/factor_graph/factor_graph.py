@@ -77,6 +77,19 @@ class OdomMeasurement:
         )
 
     @property
+    def transformation_matrix(self):
+        """
+        Get the transformation matrix
+        """
+        return np.array(
+            [
+                [np.cos(self.theta), -np.sin(self.theta), self.x],
+                [np.sin(self.theta), np.cos(self.theta), self.y],
+                [0, 0, 1],
+            ]
+        )
+
+    @property
     def translation_vector(self):
         """
         Get the translation vector for the measurement
