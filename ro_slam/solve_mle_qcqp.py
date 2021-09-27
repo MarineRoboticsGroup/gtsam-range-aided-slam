@@ -3,11 +3,10 @@ from os.path import expanduser, join
 from typing import List, Tuple, Dict
 import matplotlib.pyplot as plt  # type: ignore
 import scipy.linalg as la  # type: ignore
-import gurobipy as gp  # type: ignore
-from gurobipy import GRB  # type: ignore
+from gekko import GEKKO as gk  # type: ignore
 
-from ro_slam.gurobi_utils import (
-    GurobiVarMatrix,
+from ro_slam.qcqp_utils import (
+    VarMatrix,
     add_rotation_var,
     add_translation_var,
     pin_first_pose,
@@ -24,23 +23,7 @@ from ro_slam.gurobi_utils import (
     set_landmark_init_gt,
 )
 from ro_slam.factor_graph.parse_factor_graph import parse_factor_graph_file
-from ro_slam.factor_graph.factor_graph import (
-    OdomMeasurement,
-    RangeMeasurement,
-    PoseVariable,
-    LandmarkVariable,
-    PosePrior,
-    LandmarkPrior,
-    FactorGraphData,
-)
-from ro_slam.utils import (
-    _print_eigvals,
-    _check_is_laplacian,
-    _check_symmetric,
-    _check_psd,
-    _general_kron,
-    _matprint_block,
-)
+from ro_slam.factor_graph.factor_graph import FactorGraphData
 
 
 def solve_mle_problem(data: FactorGraphData):
@@ -51,14 +34,7 @@ def solve_mle_problem(data: FactorGraphData):
     args:
         data (FactorGraphData): the data describing the problem
     """
-    model = gp.Model("qcqp")
-    model.params.nonconvex = 2
-    model.params.feasibility_tol = 1e-2
-    model.params.optimality_tol = 1e-2
-    # model.params.iteration_limit = 500
-    # model.params.output_flag = 0
-    # model.params.time_limit = 100.0
-    print()
+    model = gk(remote=False, name="qcqp")
     obj = 0
 
     # form objective function
@@ -105,7 +81,7 @@ def solve_mle_problem(data: FactorGraphData):
     print()
 
     # perform optimization
-    model.setObjective(obj, gp.GRB.MINIMIZE)
+    model.setObjective(obj, gk.GRB.MINIMIZE)
     model.optimize()
 
     # extract the solution

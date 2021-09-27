@@ -10,22 +10,22 @@ from ro_slam.factor_graph.factor_graph import FactorGraphData
 
 
 def add_pose_variables(
-    model: gk.Model, data: FactorGraphData
-) -> Tuple[List[GurobiVarMatrix], List[GurobiVarMatrix]]:
+    model: gk, data: FactorGraphData
+) -> Tuple[List[VarMatrix], List[VarMatrix]]:
     """
     Adds variables to the model that represent the pose of the robot.
     The variables are added to the model in the order of the pose_variables.
 
     Args:
-        model (gk.Model): The gurobi model to add the variables to.
+        model (gk): The gurobi model to add the variables to.
         pose_variables (List[PoseVariable]): The list of pose variables to add.
 
     Returns:
-        List[GurobiVarMatrix]: The list of variables representing the translations of
+        List[VarMatrix]: The list of variables representing the translations of
         the robot.
     """
-    translations: List[GurobiVarMatrix] = []
-    rotations: List[GurobiVarMatrix] = []
+    translations: List[VarMatrix] = []
+    rotations: List[VarMatrix] = []
 
     for pose_idx, pose in enumerate(data.pose_variables):
         # add new translation variables d-dimensional vector
@@ -43,7 +43,7 @@ def add_pose_variables(
             new_trans.append(add_translation_var(model, name))
 
         assert len(new_trans) == 2 or len(new_trans) == 3
-        translations.append(GurobiVarMatrix(new_trans, (len(new_trans), 1)))
+        translations.append(VarMatrix(new_trans, (len(new_trans), 1)))
 
         # add new rotation variable (dxd rotation matrix)
         new_rot: List[gk.Var] = []
@@ -53,9 +53,9 @@ def add_pose_variables(
                 new_rot.append(add_rotation_var(model, name))
 
         if data.dimension == 2:
-            rotations.append(GurobiVarMatrix(new_rot, (2, 2)))
+            rotations.append(VarMatrix(new_rot, (2, 2)))
         elif data.dimension == 3:
-            rotations.append(GurobiVarMatrix(new_rot, (3, 3)))
+            rotations.append(VarMatrix(new_rot, (3, 3)))
 
         # add in rotation constraint (must be in orthogonal group)
         I_d = np.eye(data.dimension)
@@ -66,7 +66,7 @@ def add_pose_variables(
             for j in range(i, data.dimension):
                 # this is the j-th column of the rotation matrix
                 col_j = rotations[-1].column_as_MVar(j)
-                model.addConstr(
+                model.Equation(
                     col_i @ col_j == I_d[i, j],
                     name=f"rot_constr_{pose_idx}_{cnt}",
                 )
@@ -75,18 +75,16 @@ def add_pose_variables(
     return translations, rotations
 
 
-def add_landmark_variables(
-    model: gk.Model, data: FactorGraphData
-) -> List[GurobiVarMatrix]:
+def add_landmark_variables(model: gk, data: FactorGraphData) -> List[VarMatrix]:
     """
     Adds variables to the model that represent the landmarks of the robot.
 
     Args:
-        model (gk.Model): The gurobi model to add the variables to.
+        model (gk): The gurobi model to add the variables to.
         landmarks (List[LandmarkVariable]): The list of landmarks to add.
 
     Returns:
-        List[GurobiVarMatrix]: The list of variables representing the landmarks
+        List[VarMatrix]: The list of variables representing the landmarks
         of the robot.
     """
     landmarks = []
@@ -102,22 +100,22 @@ def add_landmark_variables(
             else:
                 raise NotImplementedError
             new_landmark.append(add_translation_var(model, name))
-        landmarks.append(GurobiVarMatrix(new_landmark, (len(new_landmark), 1)))
+        landmarks.append(VarMatrix(new_landmark, (len(new_landmark), 1)))
     return landmarks
 
 
 def add_distance_variables(
-    model: gk.Model,
+    model: gk,
     data: FactorGraphData,
-    translations: List[GurobiVarMatrix],
-    landmarks: List[GurobiVarMatrix],
+    translations: List[VarMatrix],
+    landmarks: List[VarMatrix],
 ) -> Dict[Tuple[int, int], gk.Var]:
     """
     Adds variables to the model that represent the distances between the robot's
     landmarks and the landmarks.
 
     Args:
-        model (gk.Model): The gurobi model to add the variables to.
+        model (gk): The gurobi model to add the variables to.
         landmarks (List[LandmarkVariable]): The list of landmarks to add.
 
     Returns:
@@ -131,7 +129,7 @@ def add_distance_variables(
 
         # create distance variable
         dist_key = (pose_idx, landmark_idx)
-        distances[dist_key] = model.addVar(name=f"d_p{pose_idx}_l{landmark_idx}")
+        distances[dist_key] = model.Var(name=f"d_p{pose_idx}_l{landmark_idx}")
 
         # create distance constraint
         # ||t_i - l_j||^2 <= d_ij^2
@@ -139,7 +137,7 @@ def add_distance_variables(
         land_j = landmarks[landmark_idx]
         diff = trans_i - land_j
 
-        model.addConstr(
+        model.Equation(
             diff.frob_norm_squared == distances[dist_key] * distances[dist_key]
         )
 
@@ -163,12 +161,12 @@ def set_distance_init_gt(
         distances[dist_key].start = range_measure.dist
 
 
-def init_rotation_variable(rot: GurobiVarMatrix, mat: np.ndarray):
+def init_rotation_variable(rot: VarMatrix, mat: np.ndarray):
     """
     Initialize the rotation variables to the given rotation matrix.
 
     Args:
-        rot (GurobiVarMatrix): The rotation variables.
+        rot (VarMatrix): The rotation variables.
         mat (np.ndarray): The rotation matrix.
     """
     assert rot.shape == mat.shape
@@ -178,11 +176,11 @@ def init_rotation_variable(rot: GurobiVarMatrix, mat: np.ndarray):
             rot.contents[idx].start = mat[i, ii]
 
 
-def init_translation_variable(trans: GurobiVarMatrix, vec: np.ndarray):
+def init_translation_variable(trans: VarMatrix, vec: np.ndarray):
     """Initialize the translation variables to the given vector
 
     Args:
-        trans (GurobiVarMatrix): the variables to initialize
+        trans (VarMatrix): the variables to initialize
         vec (np.ndarray): the vector
     """
     vec = vec.reshape(-1, 1)
@@ -193,12 +191,12 @@ def init_translation_variable(trans: GurobiVarMatrix, vec: np.ndarray):
 
 
 def set_rotation_init_compose(
-    rotations: List[GurobiVarMatrix], data: FactorGraphData
+    rotations: List[VarMatrix], data: FactorGraphData
 ) -> None:
     """initializes the rotations by composing the rotations along the odometry chain
 
     Args:
-        rotations (List[GurobiVarMatrix]): the rotation variables to initialize
+        rotations (List[VarMatrix]): the rotation variables to initialize
         data (FactorGraphData): the data to use to initialize the rotations
     """
     print("Setting rotation initial points by pose composition")
@@ -219,7 +217,7 @@ def set_rotation_init_compose(
 
 
 def set_rotation_init_gt(
-    rotations: List[GurobiVarMatrix],
+    rotations: List[VarMatrix],
     data: FactorGraphData,
 ) -> None:
     """Initialize the translation and rotation variables to the ground truth translation
@@ -233,7 +231,7 @@ def set_rotation_init_gt(
 
 
 def set_translation_init_gt(
-    translations: List[GurobiVarMatrix],
+    translations: List[VarMatrix],
     data: FactorGraphData,
 ) -> None:
     """Initialize the translation and rotation variables to the ground truth translation
@@ -249,13 +247,13 @@ def set_translation_init_gt(
 
 
 def set_translation_init_compose(
-    translations: List[GurobiVarMatrix], data: FactorGraphData
+    translations: List[VarMatrix], data: FactorGraphData
 ) -> None:
     """Initialize the translation variables by composing the translation
     variables along the odometry chain.
 
     Args:
-        translations (List[GurobiVarMatrix]): the translation variables to
+        translations (List[VarMatrix]): the translation variables to
             initialize
         data (FactorGraphData): the data to use to initialize the translation
     """
@@ -276,13 +274,11 @@ def set_translation_init_compose(
         init_translation_variable(translations[measure_idx + 1], curr_trans)
 
 
-def set_landmark_init_gt(
-    landmarks: List[GurobiVarMatrix], data: FactorGraphData, model
-):
+def set_landmark_init_gt(landmarks: List[VarMatrix], data: FactorGraphData, model: gk):
     """Initialize the landmark variables to the ground truth landmarks.
 
     Args:
-        landmarks (List[GurobiVarMatrix]): [description]
+        landmarks (List[VarMatrix]): [description]
         data (FactorGraphData): [description]
     """
     print("Setting landmark initial points to ground truth")
@@ -291,12 +287,11 @@ def set_landmark_init_gt(
         true_pos = true_landmark.true_position
         for i in range(data.dimension):
             if landmark_idx == 0 or False:
-                model.addConstr(
+                model.Equation(
                     gk_landmark_var.contents[i] == true_landmark.true_position[i],
                     name=f"fix_{i}_landmark_{landmark_idx}",
                 )
             else:
-                delta = 1e-4
                 gk_landmark_var.contents[i].start = true_pos[i]
 
 
@@ -330,22 +325,22 @@ def get_distances_cost(
 
 
 def get_odom_cost(
-    translations: List[GurobiVarMatrix],
-    rotations: List[GurobiVarMatrix],
+    translations: List[VarMatrix],
+    rotations: List[VarMatrix],
     data: FactorGraphData,
 ) -> gk.QuadExpr:
     """Get the cost associated with the odometry measurements
 
     Args:
-        translations (List[GurobiVarMatrix]): [description]
-        rotations (List[GurobiVarMatrix]): [description]
+        translations (List[VarMatrix]): [description]
+        rotations (List[VarMatrix]): [description]
         data (FactorGraphData): [description]
 
     Returns:
         gk.QuadExpr: [description]
     """
     cost = 0
-    for i, odom_measure in enumerate(data.odom_measurements):
+    for odom_measure in data.odom_measurements:
 
         # the indices of the related poses in the odometry measurement
         i_idx = odom_measure.base_pose_idx
@@ -372,12 +367,12 @@ def get_odom_cost(
     return cost
 
 
-def pin_first_pose(translation: GurobiVarMatrix, rotation: GurobiVarMatrix) -> None:
+def pin_first_pose(translation: VarMatrix, rotation: VarMatrix) -> None:
     """
     Pin the first pose of the robot to the origin.
 
     Args:
-        model (gk.Model): The gurobi model to add the variable to.
+        model (gk): The gurobi model to add the variable to.
 
     """
     # fix translation to origin
@@ -394,35 +389,35 @@ def pin_first_pose(translation: GurobiVarMatrix, rotation: GurobiVarMatrix) -> N
             rotation.contents[idx].ub = I_d[i, j]
 
 
-def add_rotation_var(model: gk.Model, name: str) -> gk.Var:
+def add_rotation_var(model: gk, name: str) -> gk.Var:
     """
     Adds a variable to the model that represents one component of the rotation
     matrix of the robot.
 
     Args:
-        model (gk.Model): The gurobi model to add the variable to.
+        model (gk): The gurobi model to add the variable to.
         name (str): The name of the variable.
 
     Returns:
         gk.Var: The variable representing the rotation component of the robot.
     """
-    var = model.addVar(lb=-1.0, ub=1.0, name=name)
+    var = model.Var(lb=-1.0, ub=1.0, name=name)
     return var
 
 
-def add_translation_var(model: gk.Model, name: str) -> gk.Var:
+def add_translation_var(model: gk, name: str) -> gk.Var:
     """
     Adds a variable to the model that represents one component of the translation
     vector of the robot.
 
     Args:
-        model (gk.Model): The gurobi model to add the variable to.
+        model (gk): The gurobi model to add the variable to.
         name (str): The name of the variable.
 
     Returns:
         gk.Var: The variable representing the translation component of the robot.
     """
-    var = model.addVar(lb=-gk.GRB.INFINITY, ub=gk.GRB.INFINITY, name=name)
+    var = model.Var(lb=-gk.GRB.INFINITY, ub=gk.GRB.INFINITY, name=name)
     return var
 
 
@@ -445,22 +440,22 @@ class Matrix:
             [self.contents[i] * self.contents[i] for i in range(len(self.contents))]
         )
 
-    def __add__(self, other: Matrix) -> GurobiLinExprMatrix:
+    def __add__(self, other: Matrix) -> EquationMatrix:
         """
         Add two matrices together
         """
         res = [self.contents[i] + other.contents[i] for i in range(len(self.contents))]
-        return GurobiLinExprMatrix(res, self.shape)
+        return EquationMatrix(res, self.shape)
 
     def __neg__(self) -> Matrix:
         """
         Negation of a matrix
         """
         res = [-self.contents[i] for i in range(len(self.contents))]
-        if isinstance(self, GurobiLinExprMatrix):
-            return GurobiLinExprMatrix(res, self.shape)
-        elif isinstance(self, GurobiVarMatrix):
-            return GurobiVarMatrix(res, self.shape)
+        if isinstance(self, EquationMatrix):
+            return EquationMatrix(res, self.shape)
+        elif isinstance(self, VarMatrix):
+            return VarMatrix(res, self.shape)
         else:
             raise ValueError("Unsupported matrix type")
 
@@ -472,7 +467,7 @@ class Matrix:
 
 
 @attr.s(frozen=True)
-class GurobiVarMatrix(Matrix):
+class VarMatrix(Matrix):
     """
     A wrapper for a matrix, internally represented as a list of variables
 
@@ -481,7 +476,7 @@ class GurobiVarMatrix(Matrix):
         shape (Tuple[int, int]): the shape of the matrix
     """
 
-    #: The underlying Gurobi matrix
+    #: The underlying matrix
     contents: List[gk.Var] = attr.ib()
     shape: Tuple[int, int] = attr.ib()
 
@@ -493,6 +488,7 @@ class GurobiVarMatrix(Matrix):
     def num_cols(self) -> int:
         return self.shape[1]
 
+    # TODO explain this string
     def __str__(self) -> str:
         var_name = self.contents[0].VarName
         search = re.search(r"_[lp][0-9]*", var_name)
@@ -504,31 +500,31 @@ class GurobiVarMatrix(Matrix):
 
         return line
 
-    def __add__(self, other: Matrix) -> GurobiLinExprMatrix:
+    def __add__(self, other: Matrix) -> EquationMatrix:
         """Matrix addition"""
         assert self.shape == other.shape, "Matrices are not the same shape"
         diff = []
         for i in range(len(self.contents)):
             diff.append(self.contents[i] + other.contents[i])
 
-        return GurobiLinExprMatrix(diff, self.shape)
+        return EquationMatrix(diff, self.shape)
 
-    def __neg__(self) -> GurobiLinExprMatrix:
+    def __neg__(self) -> EquationMatrix:
         """Negates the matrix"""
         negated = []
         for i in range(len(self.contents)):
             negated.append(-self.contents[i])
-        return GurobiLinExprMatrix(negated, self.shape)
+        return EquationMatrix(negated, self.shape)
 
-    def __sub__(self, other: Matrix) -> GurobiLinExprMatrix:
+    def __sub__(self, other: Matrix) -> EquationMatrix:
         """Subtracts two matrices"""
         assert self.shape == other.shape, "Matrices are not the same shape"
         diff = []
         for i in range(len(self.contents)):
             diff.append(self.contents[i] + (-other.contents[i]))
-        return GurobiLinExprMatrix(diff, self.shape)
+        return EquationMatrix(diff, self.shape)
 
-    def __matmul__(self, other: np.ndarray) -> Union[GurobiLinExprMatrix]:
+    def __matmul__(self, other: np.ndarray) -> Union[EquationMatrix]:
         """Matrix multiplication"""
         # make sure that dimensions match up
         assert (
@@ -556,7 +552,7 @@ class GurobiVarMatrix(Matrix):
                     mult_result.append(row_col_product)
 
             new_shape = (self.shape[0], other.shape[1])
-            return GurobiLinExprMatrix(mult_result, new_shape)
+            return EquationMatrix(mult_result, new_shape)
 
         else:
             raise NotImplementedError(
@@ -629,7 +625,7 @@ class GurobiVarMatrix(Matrix):
 
 
 @attr.s(frozen=True)
-class GurobiLinExprMatrix(Matrix):
+class EquationMatrix(Matrix):
     """
     A wrapper for a Gurobi matrix, internally represented as a list of gurobi
     linear expressions
