@@ -3,12 +3,9 @@ from os.path import expanduser, join
 from typing import List, Tuple, Dict
 import matplotlib.pyplot as plt  # type: ignore
 import scipy.linalg as la  # type: ignore
-from gekko import GEKKO as gk  # type: ignore
+from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve
 
 from ro_slam.qcqp_utils import (
-    VarMatrix,
-    add_rotation_var,
-    add_translation_var,
     pin_first_pose,
     add_pose_variables,
     add_landmark_variables,
@@ -34,25 +31,17 @@ def solve_mle_problem(data: FactorGraphData):
     args:
         data (FactorGraphData): the data describing the problem
     """
-    model = gk(remote=False, name="qcqp")
-    obj = 0
+    model = MathematicalProgram()
 
     # form objective function
-    # Q, D = _get_data_matrix(data)
-    # _check_psd(Q)
-    # _check_psd(D)
-    # full_data_matrix = la.block_diag(Q, D)
-
-    # true_vals = data.true_values_vector
-
-    # _check_psd(full_data_matrix)
-
     translations, rotations = add_pose_variables(model, data)
     landmarks = add_landmark_variables(model, data)
     distances = add_distance_variables(model, data, translations, landmarks)
 
-    obj += get_distances_cost(distances, data)
-    obj += get_odom_cost(translations, rotations, data)
+    raise NotImplementedError("Need to add distances cost")
+    # obj += get_distances_cost(distances, data)
+    raise NotImplementedError("Need to add rotations cost")
+    # obj += get_odom_cost(translations, rotations, data)
 
     # add in term to move landmarks to their true locations
     # for i, j in distances.keys():
@@ -81,8 +70,7 @@ def solve_mle_problem(data: FactorGraphData):
     print()
 
     # perform optimization
-    model.setObjective(obj, gk.GRB.MINIMIZE)
-    model.optimize()
+    raise NotImplementedError("MLE solver not implemented")
 
     # extract the solution
     print()
