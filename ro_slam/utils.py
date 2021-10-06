@@ -3,6 +3,14 @@ import scipy.linalg as la  # type: ignore
 from typing import List, Tuple
 
 
+def get_theta_from_matrix(mat: np.ndarray):
+    """
+    Returns theta from a matrix M
+    """
+    _check_square(mat)
+    return np.arctan2(mat[1, 0], mat[0, 0])
+
+
 def _print_eigvals(
     M: np.ndarray, name: str = None, print_eigvec: bool = False, symmetric: bool = True
 ):
@@ -32,6 +40,10 @@ def _print_eigvals(
         print(f"eigenvalues\n{eigvals}")
 
     print("\n\n\n")
+
+
+def _check_square(mat: np.ndarray):
+    assert mat.shape[0] == mat.shape[1], "matrix must be square"
 
 
 def _check_symmetric(mat):

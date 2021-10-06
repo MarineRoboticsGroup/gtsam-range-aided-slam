@@ -4,10 +4,16 @@ from typing import List, Tuple, Union, Dict
 import re
 
 from ro_slam.factor_graph.factor_graph import FactorGraphData
-from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve
-from pydrake.solvers.mixed_integer_rotation_constraint import (
+from ro_slam.utils import _check_square
+
+from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve  # type: ignore
+from pydrake.solvers.mixed_integer_rotation_constraint import (  # type: ignore
     MixedIntegerRotationConstraintGenerator as MIRCGenerator,
 )
+
+# from pydrake.solvers.mixed_integer_optimization_util import IntervalBinning  # type: ignore
+
+##### Add variables #####
 
 
 def add_pose_variables(
@@ -29,7 +35,6 @@ def add_pose_variables(
     """
     translations: List[np.ndarray] = []
     rotations: List[np.ndarray] = []
-    rot_const_generator = MIRCGenerator()
 
     for pose_idx, pose in enumerate(data.pose_variables):
         # add new translation variables d-dimensional vector
@@ -38,10 +43,6 @@ def add_pose_variables(
 
         rot_name = f"pose{pose_idx}_rotation"
         rotations.append(add_rotation_var(model, rot_name, data.dimension))
-
-        # this is one type of constraint that Drake allows, but is a
-        # mixed-integer linear constraint so may be more efficient approaches
-        rot_const_generator.AddToProgram(rotations[-1], model)
 
         # TODO test out more efficient constraints?
         # add in rotation constraint (must be in orthogonal group)
@@ -132,253 +133,6 @@ def add_distance_variables(
     return distances
 
 
-def set_distance_init_gt(
-    distances: Dict[Tuple[int, int], np.ndarray], data: FactorGraphData
-):
-    """Initialize the distance variables to the ground truth distances.
-
-    Args:
-        distances (Dict[Tuple[int, int], np.ndarray]): [description]
-        data (FactorGraphData): [description]
-    """
-    print("Setting distance initial points to measured distance")
-    for range_measure in data.range_measurements:
-        pose_idx = range_measure.pose_idx
-        landmark_idx = range_measure.landmark_idx
-        dist_key = (pose_idx, landmark_idx)
-        distances[dist_key].start = range_measure.dist
-
-
-def init_rotation_variable(rot: np.ndarray, mat: np.ndarray):
-    """
-    Initialize the rotation variables to the given rotation matrix.
-
-    Args:
-        rot (np.ndarray): The rotation variables.
-        mat (np.ndarray): The rotation matrix.
-    """
-    assert rot.shape == mat.shape
-    for i in range(mat.shape[0]):
-        for ii in range(mat.shape[1]):
-            idx = i * mat.shape[1] + ii
-            rot.contents[idx].start = mat[i, ii]
-
-
-def init_translation_variable(trans: np.ndarray, vec: np.ndarray):
-    """Initialize the translation variables to the given vector
-
-    Args:
-        trans (np.ndarray): the variables to initialize
-        vec (np.ndarray): the vector
-    """
-    vec = vec.reshape(-1, 1)
-    assert trans.shape == vec.shape, f"trans shape: {trans.shape} vec shape {vec.shape}"
-
-    for i in range(len(vec)):
-        trans.contents[i].start = vec[i]
-
-
-def set_rotation_init_compose(
-    rotations: List[np.ndarray], data: FactorGraphData
-) -> None:
-    """initializes the rotations by composing the rotations along the odometry chain
-
-    Args:
-        rotations (List[np.ndarray]): the rotation variables to initialize
-        data (FactorGraphData): the data to use to initialize the rotations
-    """
-    print("Setting rotation initial points by pose composition")
-
-    # initialize the first rotation to the identity matrix
-    curr_pose = np.eye(data.dimension)
-    init_rotation_variable(rotations[0], curr_pose)
-
-    # iterate over measurements and init the rotations
-    for measure_idx, odom_measure in enumerate(data.odom_measurements):
-
-        # update the current pose
-        curr_pose = curr_pose @ odom_measure.rotation_matrix
-
-        # initialize the rotation variables
-        cur_gk_rot_variable = rotations[measure_idx + 1]
-        init_rotation_variable(cur_gk_rot_variable, curr_pose)
-
-
-def set_rotation_init_gt(
-    rotations: List[np.ndarray],
-    data: FactorGraphData,
-) -> None:
-    """Initialize the translation and rotation variables to the ground truth translation
-    variables.
-    """
-    print("Setting rotation initial points to ground truth")
-    for pose_idx, pose in enumerate(data.pose_variables):
-        gk_rotation = rotations[pose_idx]
-        true_rotation = pose.rotation_matrix
-        init_rotation_variable(gk_rotation, true_rotation)
-
-
-def set_translation_init_gt(
-    translations: List[np.ndarray],
-    data: FactorGraphData,
-) -> None:
-    """Initialize the translation and rotation variables to the ground truth translation
-    variables.
-    """
-    print("Setting translation initial points to ground truth")
-    for pose_idx, pose in enumerate(data.pose_variables):
-        gk_translation = translations[pose_idx]
-        true_translation = pose.true_position
-
-        for i in range(data.dimension):
-            gk_translation.contents[i].start = pose.true_position[i]
-
-
-def set_translation_init_compose(
-    translations: List[np.ndarray], data: FactorGraphData
-) -> None:
-    """Initialize the translation variables by composing the translation
-    variables along the odometry chain.
-
-    Args:
-        translations (List[np.ndarray]): the translation variables to
-            initialize
-        data (FactorGraphData): the data to use to initialize the translation
-    """
-    print("Setting translation initial points by pose composition")
-    curr_pose = np.eye(data.dimension + 1)
-    curr_trans = curr_pose[:-1, -1]
-    init_translation_variable(translations[0], curr_trans)
-    print(0, curr_trans)
-
-    for measure_idx, odom_measure in enumerate(data.odom_measurements):
-
-        # update the current pose
-        curr_pose = curr_pose @ odom_measure.transformation_matrix
-        curr_trans = curr_pose[:-1, -1]
-        print(measure_idx, curr_trans)
-
-        # initialize the translation variables
-        init_translation_variable(translations[measure_idx + 1], curr_trans)
-
-
-def set_landmark_init_gt(
-    landmarks: List[np.ndarray], data: FactorGraphData, model: MathematicalProgram
-):
-    """Initialize the landmark variables to the ground truth landmarks.
-
-    Args:
-        landmarks (List[np.ndarray]): [description]
-        data (FactorGraphData): [description]
-    """
-    print("Setting landmark initial points to ground truth")
-    for landmark_idx, true_landmark in enumerate(data.landmark_variables):
-        gk_landmark_var = landmarks[landmark_idx]
-        true_pos = true_landmark.true_position
-        for i in range(data.dimension):
-            if landmark_idx == 0 or False:
-                model.Equation(
-                    gk_landmark_var.contents[i] == true_landmark.true_position[i],
-                    name=f"fix_{i}_landmark_{landmark_idx}",
-                )
-            else:
-                gk_landmark_var.contents[i].start = true_pos[i]
-
-
-def get_distances_cost(
-    distances: Dict[Tuple[int, int], np.ndarray], data: FactorGraphData
-) -> MathematicalProgram.QuadExpr:
-    """[summary]
-
-    Args:
-        distances (Dict[Tuple[int, int], np.ndarray]): [description]
-        data (FactorGraphData): [description]
-
-    Returns:
-        MathematicalProgram.QuadExpr: [description]
-    """
-    cost = 0
-    for range_measure in data.range_measurements:
-        pose_idx = range_measure.pose_idx
-        landmark_idx = range_measure.landmark_idx
-
-        # create distance variable
-        dist_key = (pose_idx, landmark_idx)
-
-        # add in distance cost component
-        # k_ij * ||d_ij - d_ij^meas||^2
-        dist_diff = distances[dist_key] - range_measure.dist  # distance difference
-
-        cost += dist_diff * dist_diff * range_measure.weight
-
-    return cost
-
-
-def get_odom_cost(
-    translations: List[np.ndarray],
-    rotations: List[np.ndarray],
-    data: FactorGraphData,
-) -> MathematicalProgram.QuadExpr:
-    """Get the cost associated with the odometry measurements
-
-    Args:
-        translations (List[np.ndarray]): [description]
-        rotations (List[np.ndarray]): [description]
-        data (FactorGraphData): [description]
-
-    Returns:
-        MathematicalProgram.QuadExpr: [description]
-    """
-    cost = 0
-    for odom_measure in data.odom_measurements:
-
-        # the indices of the related poses in the odometry measurement
-        i_idx = odom_measure.base_pose_idx
-        j_idx = odom_measure.to_pose_idx
-
-        # get the translation and rotation variables
-        t_i = translations[i_idx]
-        t_j = translations[j_idx]
-        R_i = rotations[i_idx]
-        R_j = rotations[j_idx]
-
-        # translation component of cost
-        # k_ij * ||t_i - t_j - R_i @ t_ij^meas||^2
-        trans_weight = odom_measure.translation_weight
-        trans_measure = odom_measure.translation_vector
-        term = t_j - t_i - (R_i @ trans_measure)
-        cost += trans_weight * term.frob_norm_squared
-
-        # rotation component of cost
-        rot_weight = odom_measure.rotation_weight
-        rot_measure = odom_measure.rotation_matrix
-        diff_rot_matrix = R_j - (R_i @ rot_measure)
-        cost += rot_weight * diff_rot_matrix.frob_norm_squared
-    return cost
-
-
-def pin_first_pose(translation: np.ndarray, rotation: np.ndarray) -> None:
-    """
-    Pin the first pose of the robot to the origin.
-
-    Args:
-        model (MathematicalProgram): The gurobi model to add the variable to.
-
-    """
-    # fix translation to origin
-    for i in range(translation.shape[0]):
-        translation.contents[i].lb = 0.0
-        translation.contents[i].ub = 0.0
-
-    # fix rotation to identity
-    I_d = np.eye(3)
-    for i in range(translation.shape[0]):
-        for j in range(translation.shape[0]):
-            idx = i * translation.shape[0] + j
-            rotation.contents[idx].lb = I_d[i, j]
-            rotation.contents[idx].ub = I_d[i, j]
-
-
 def add_distance_var(model: MathematicalProgram, name: str) -> np.ndarray:
     """
     Add a variable to the model.
@@ -406,7 +160,7 @@ def add_rotation_var(model: MathematicalProgram, name: str, dim: int) -> np.ndar
     Returns:
         np.ndarray: The variable representing the rotation of the robot
     """
-    var = model.addContinuousVariables(row=dim, col=dim, name=name)
+    var = model.NewContinuousVariables(rows=dim, cols=dim, name=name)
     return var
 
 
@@ -423,5 +177,333 @@ def add_translation_var(model: MathematicalProgram, name: str, dim: int) -> np.n
         np.ndarray: The variable representing the translation component of the robot.
     """
     assert dim == 2 or dim == 3
-    var = model.newContinuousVariables(rows=dim, name=name)
+    var = model.NewContinuousVariables(rows=dim, name=name)
     return var
+
+
+##### Add costs #####
+
+
+def add_distances_cost(
+    model: MathematicalProgram,
+    distances: Dict[Tuple[int, int], np.ndarray],
+    data: FactorGraphData,
+):
+    """Adds in the cost due to the distances as:
+    sum_{i,j} k_ij * ||d_ij - d_ij^meas||^2
+
+    Args:
+        model (MathematicalProgram): the model to add the cost to
+        distances (Dict[Tuple[int, int], np.ndarray]): [description]
+        data (FactorGraphData): [description]
+
+    """
+    for range_measure in data.range_measurements:
+        pose_idx = range_measure.pose_idx
+        landmark_idx = range_measure.landmark_idx
+
+        # create distance variable
+        dist_key = (pose_idx, landmark_idx)
+
+        # add in distance cost component
+        # k_ij * ||d_ij - d_ij^meas||^2
+        dist_diff = distances[dist_key] - range_measure.dist
+
+        model.AddQuadraticCost(range_measure.weight * (dist_diff ** 2))
+
+
+def add_odom_cost(
+    model: MathematicalProgram,
+    translations: List[np.ndarray],
+    rotations: List[np.ndarray],
+    data: FactorGraphData,
+):
+    """Add the cost associated with the odometry measurements as:
+
+        translation component of cost
+        k_ij * ||t_i - t_j - R_i @ t_ij^meas||^2
+
+        rotation component of cost
+        tau_ij * || R_j - (R_i @ R_ij^\top) ||_\frob^2
+
+    Args:
+        model (MathematicalProgram): the model to add the cost to
+        translations (List[np.ndarray]): [description]
+        rotations (List[np.ndarray]): [description]
+        data (FactorGraphData): [description]
+
+    """
+    for odom_measure in data.odom_measurements:
+
+        # the indices of the related poses in the odometry measurement
+        i_idx = odom_measure.base_pose_idx
+        j_idx = odom_measure.to_pose_idx
+
+        # get the translation and rotation variables
+        t_i = translations[i_idx]
+        t_j = translations[j_idx]
+        R_i = rotations[i_idx]
+        R_j = rotations[j_idx]
+
+        # translation component of cost
+        # k_ij * ||t_i - t_j - R_i @ t_ij^meas||^2
+        trans_weight = odom_measure.translation_weight
+        trans_measure = odom_measure.translation_vector
+        term = t_j - t_i - (R_i @ trans_measure)
+        model.AddQuadraticCost(trans_weight * (term ** 2).sum())
+
+        # rotation component of cost
+        # tau_ij * || R_j - (R_i @ R_ij^\top) ||_\frob
+        rot_weight = odom_measure.rotation_weight
+        rot_measure = odom_measure.rotation_matrix
+        diff_rot_matrix = R_j - (R_i @ rot_measure)
+        model.AddQuadraticCost(rot_weight * (diff_rot_matrix ** 2).sum())
+
+
+##### Initialization strategies #####
+
+
+def set_distance_init_gt(
+    model: MathematicalProgram,
+    distances: Dict[Tuple[int, int], np.ndarray],
+    data: FactorGraphData,
+):
+    """Initialize the distance variables to the ground truth distances.
+
+    Args:
+        distances (Dict[Tuple[int, int], np.ndarray]): [description]
+        data (FactorGraphData): [description]
+    """
+    print("Setting distance initial points to measured distance")
+    for range_measure in data.range_measurements:
+        pose_idx = range_measure.pose_idx
+        landmark_idx = range_measure.landmark_idx
+        dist_key = (pose_idx, landmark_idx)
+        model.SetInitialGuess(distances[dist_key], range_measure.dist)
+
+
+def init_rotation_variable(
+    model: MathematicalProgram, rot: np.ndarray, mat: np.ndarray
+):
+    """
+    Initialize the rotation variables to the given rotation matrix.
+
+    Args:
+        rot (np.ndarray): The rotation variables.
+        mat (np.ndarray): The rotation matrix.
+    """
+    assert rot.shape == mat.shape
+    model.SetInitialGuess(rot, mat)
+
+
+def init_translation_variable(
+    model: MathematicalProgram, trans: np.ndarray, vec: np.ndarray
+):
+    """Initialize the translation variables to the given vector
+
+    Args:
+        trans (np.ndarray): the variables to initialize
+        vec (np.ndarray): the vector
+    """
+    assert trans.shape == vec.shape, f"trans shape: {trans.shape} vec shape {vec.shape}"
+    model.SetInitialGuess(trans, vec)
+
+
+def set_rotation_init_compose(
+    model: MathematicalProgram, rotations: List[np.ndarray], data: FactorGraphData
+) -> None:
+    """initializes the rotations by composing the rotations along the odometry chain
+
+    Args:
+        rotations (List[np.ndarray]): the rotation variables to initialize
+        data (FactorGraphData): the data to use to initialize the rotations
+    """
+    print("Setting rotation initial points by pose composition")
+
+    # initialize the first rotation to the identity matrix
+    curr_pose = np.eye(data.dimension)
+    init_rotation_variable(model, rotations[0], curr_pose)
+
+    # iterate over measurements and init the rotations
+    for measure_idx, odom_measure in enumerate(data.odom_measurements):
+
+        # update the current pose
+        curr_pose = curr_pose @ odom_measure.rotation_matrix
+
+        # initialize the rotation variables
+        cur_gk_rot_variable = rotations[measure_idx + 1]
+        init_rotation_variable(model, cur_gk_rot_variable, curr_pose)
+
+
+def set_rotation_init_gt(
+    model: MathematicalProgram,
+    rotations: List[np.ndarray],
+    data: FactorGraphData,
+) -> None:
+    """Initialize the translation and rotation variables to the ground truth translation
+    variables.
+    """
+    print("Setting rotation initial points to ground truth")
+    for pose_idx, pose in enumerate(data.pose_variables):
+        gk_rotation = rotations[pose_idx]
+        true_rotation = pose.rotation_matrix
+        init_rotation_variable(model, gk_rotation, true_rotation)
+
+
+def set_translation_init_gt(
+    model: MathematicalProgram,
+    translations: List[np.ndarray],
+    data: FactorGraphData,
+) -> None:
+    """Initialize the translation and rotation variables to the ground truth translation
+    variables.
+    """
+    print("Setting translation initial points to ground truth")
+    for pose_idx, pose in enumerate(data.pose_variables):
+        translation_var = translations[pose_idx]
+        true_translation = pose.true_position
+        init_translation_variable(model, translation_var, np.asarray(true_translation))
+
+
+def set_translation_init_compose(
+    model: MathematicalProgram, translations: List[np.ndarray], data: FactorGraphData
+) -> None:
+    """Initialize the translation variables by composing the translation
+    variables along the odometry chain.
+
+    Args:
+        translations (List[np.ndarray]): the translation variables to
+            initialize
+        data (FactorGraphData): the data to use to initialize the translation
+    """
+    print("Setting translation initial points by pose composition")
+    curr_pose = np.eye(data.dimension + 1)
+    curr_trans = curr_pose[:-1, -1]
+    init_translation_variable(model, translations[0], curr_trans)
+
+    for measure_idx, odom_measure in enumerate(data.odom_measurements):
+
+        # update the current pose
+        curr_pose = curr_pose @ odom_measure.transformation_matrix
+        curr_trans = curr_pose[:-1, -1]
+
+        # initialize the translation variables
+        init_translation_variable(model, translations[measure_idx + 1], curr_trans)
+
+
+def set_landmark_init_gt(
+    model: MathematicalProgram,
+    landmarks: List[np.ndarray],
+    data: FactorGraphData,
+):
+    """Initialize the landmark variables to the ground truth landmarks.
+
+    Args:
+        landmarks (List[np.ndarray]): [description]
+        data (FactorGraphData): [description]
+    """
+    print("Setting landmark initial points to ground truth")
+    for landmark_idx, true_landmark in enumerate(data.landmark_variables):
+        gk_landmark_var = landmarks[landmark_idx]
+        true_pos = true_landmark.true_position
+        for i in range(data.dimension):
+            if landmark_idx == 0 or False:
+                # pin the first landmark to the correct position
+                add_drake_matrix_equality_constraint(
+                    model, gk_landmark_var, np.asarray(true_pos)
+                )
+            else:
+                # initialize landmark to correct position
+                model.SetInitialGuess(gk_landmark_var, true_pos)
+
+
+##### Constraints #####
+
+
+def pin_first_pose(
+    model: MathematicalProgram, translation: np.ndarray, rotation: np.ndarray
+) -> None:
+    """
+    Pin the first pose of the robot to the origin.
+
+    Args:
+        model (MathematicalProgram): The model to pin the pose in
+        translation (np.ndarray): The translation variable to pin
+        rotation (np.ndarray): The rotation variable to pin
+
+    """
+    _check_square(rotation)
+    assert len(translation) == rotation.shape[0]
+
+    # fix translation to origin
+    add_drake_matrix_equality_constraint(
+        model, translation, np.zeros(translation.shape)
+    )
+
+    # fix rotation to identity
+    d = rotation.shape[0]
+    I_d = np.eye(d)
+    add_drake_matrix_equality_constraint(model, rotation, I_d)
+
+
+def set_orthogonal_constraint(model: MathematicalProgram, mat: np.ndarray) -> None:
+    """Sets an orthogonal constraint on a given matrix (i.e. R.T @ R == I)
+
+    Args:
+        model (MathematicalProgram): the model to set the constraint in
+        mat (np.ndarray): the matrix to constrain
+    """
+    assert mat.shape[0] == mat.shape[1], "matrix must be square"
+    I_d = np.eye(mat.shape[0])
+    add_drake_matrix_equality_constraint(model, mat.T @ mat, I_d)
+
+
+def set_mixed_int_rotation_constraint(
+    model: MathematicalProgram, vars: List[np.ndarray]
+):
+    """Uses built-in Drake constraints to write the rotation matrix as
+    mixed-integer constraints
+
+    Args:
+        model (MathematicalProgram): the model to set the constraints in
+        vars (List[np.ndarray]): the variables to constrain to rotation matrices
+    """
+    # * various constraints for rotation matrices
+    approach = MIRCGenerator.Approach.kBoxSphereIntersection
+    # approach = MIRCGenerator.Approach.kBilinearMcCormick
+    # approach = MIRCGenerator.Approach.kBoth
+
+    intervals_per_half_axis = 10
+
+    # binning = MIRCGenerator.Binning.kLinear
+    binning = MIRCGenerator.Binning.kLogarithmic
+
+    rot_const_generator = MIRCGenerator(approach, intervals_per_half_axis, binning)
+
+    for mat in vars:
+        # this is one type of constraint that Drake allows, but is a
+        # mixed-integer linear constraint so may be more efficient approaches
+        rot_const_generator.AddToProgram(mat, model)
+
+
+def add_drake_matrix_equality_constraint(
+    model: MathematicalProgram, var: np.ndarray, mat: np.ndarray
+) -> None:
+    """Adds a Drake matrix equality constraint to the model.
+
+    Args:
+        model (MathematicalProgram): the model to add the constraint to
+        var (np.ndarray): the variable to constrain
+        mat (np.ndarray): the matrix to set it equal to
+    """
+    assert var.shape == mat.shape, "variable and matrix must have same shape"
+
+    def equality_constraint_evaluator(mat):
+        return mat.flatten()
+
+    model.AddConstraint(
+        equality_constraint_evaluator,
+        lb=mat.flatten(),
+        ub=mat.flatten(),
+        vars=var.flatten(),
+    )
