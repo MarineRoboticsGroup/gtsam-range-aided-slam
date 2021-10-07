@@ -50,7 +50,9 @@ def _check_rotation_matrix(R: np.ndarray):
         R (np.ndarray): the candidate rotation matrix
     """
     d = R.shape[0]
-    assert np.allclose(R.T @ R, np.eye(d), rtol=1e-3, atol=1e-3), f"R.T @ R: {R.T @ R}"
+    is_orthogonal = np.allclose(R @ R.T, np.eye(d), rtol=1e-3, atol=1e-3)
+    if not is_orthogonal:
+        print(f"R not orthogonal: {R @ R.T}")
 
 
 def _check_square(mat: np.ndarray):

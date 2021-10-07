@@ -17,7 +17,7 @@ from pydrake.solvers.mixed_integer_rotation_constraint import (  # type: ignore
 
 
 def add_pose_variables(
-    model: MathematicalProgram, data: FactorGraphData
+    model: MathematicalProgram, data: FactorGraphData, orthogonal_constraint: bool
 ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     """
     Adds variables to the model that represent the pose of the robot.
@@ -26,6 +26,8 @@ def add_pose_variables(
     Args:
         model (MathematicalProgram): The gurobi model to add the variables to.
         pose_variables (List[PoseVariable]): The list of pose variables to add.
+        orthogonal_constraint (bool): Whether to add orthogonal constraints to
+            the rotation matrices (i.e. R.T @ R = I)
 
     Returns:
         List[np.ndarray]: The list of variables representing the translations of
@@ -46,8 +48,9 @@ def add_pose_variables(
         rotations.append(rot_var)
 
         # TODO test out more efficient constraints?
-        # add in rotation constraint (must be in orthogonal group)
-        set_orthogonal_constraint(model, rot_var)
+        # add in rotation constraint (i.e. matrix must be in orthogonal group)
+        if orthogonal_constraint:
+            set_orthogonal_constraint(model, rot_var)
 
     return translations, rotations
 
@@ -78,7 +81,7 @@ def add_distance_variables(
     data: FactorGraphData,
     translations: List[np.ndarray],
     landmarks: List[np.ndarray],
-    socp_relax: bool = False,
+    socp_relax: bool,
 ) -> Dict[Tuple[int, int], np.ndarray]:
     """
     Adds variables to the model that represent the distances between the robot's
@@ -93,7 +96,7 @@ def add_distance_variables(
         the distances between the robot's landmarks and the landmarks.
     """
     distances = {}
-    for dist_idx, range_measure in enumerate(data.range_measurements):
+    for range_measure in data.range_measurements:
         pose_idx = range_measure.pose_idx
         landmark_idx = range_measure.landmark_idx
 
@@ -111,8 +114,8 @@ def add_distance_variables(
 
         # give two options for how to implement the distance constraint
         if socp_relax:
-            # TODO not sure if this is correct syntax? Need to test.
-            model.AddLorentzConeConstraint(distances[dist_key], diff)
+            cone_vars = np.asarray([distances[dist_key][0], *diff.flatten()])
+            cone_const = model.AddLorentzConeConstraint(cone_vars)
         else:
             # nonconvex quadratic constraint
             add_drake_distance_equality_constraint(
@@ -448,27 +451,19 @@ def set_orthogonal_constraint(model: MathematicalProgram, mat: np.ndarray) -> No
     """
     assert mat.shape[0] == mat.shape[1], "matrix must be square"
     d = mat.shape[0]
-    dot_prod_mat = np.eye(2 * d)
-    dot_prod_mat[:d, d:] = -np.eye(d)
-    dot_prod_mat[d:, :d] = -np.eye(d)
 
-    for i in range(d):
-        for j in range(i, d):
-            # set the constraint
-
-            col_i = mat[:, i]
-
-            if i == j:
-                # set diagonal constraint
-                const = model.AddConstraint((col_i ** 2).sum() == 1)
-            else:
-                # set off-diagonal constraint
-                col_j = mat[:, j]
-                const = model.AddConstraint(
-                    col_i[0] * col_j[0] + col_i[1] * col_j[1] == 0
-                )
-
-    # add_drake_matrix_equality_constraint(model, mat.T @ mat, I_d)
+    # for i in range(d):
+    #     for j in range(i, d):
+    #         col_i = mat[:, i]
+    #         if i == j:
+    #             # set diagonal constraint
+    #             const = model.AddConstraint((col_i ** 2).sum() == 1)
+    #         else:
+    #             # set off-diagonal constraint
+    #             col_j = mat[:, j]
+    #             const = model.AddConstraint(
+    #                 col_i[0] * col_j[0] + col_i[1] * col_j[1] == 0
+    #             )
 
 
 def set_mixed_int_rotation_constraint(

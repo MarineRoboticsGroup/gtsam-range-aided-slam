@@ -6,6 +6,7 @@ import scipy.linalg as la  # type: ignore
 from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve  # type: ignore
 from pydrake.solvers.ipopt import IpoptSolver
 from pydrake.solvers.snopt import SnoptSolver
+from pydrake.solvers.gurobi import GurobiSolver
 
 from ro_slam.qcqp_utils import (
     pin_first_pose,
@@ -102,6 +103,8 @@ def solve_mle_problem(
     verbose: bool,
     save_results: bool,
     results_filepath: str,
+    use_socp_relax: bool,
+    use_orthogonal_constraint: bool,
 ):
     """
     Takes the data describing the problem and returns the MLE solution to the
@@ -113,18 +116,24 @@ def solve_mle_problem(
         verbose (bool): whether to show verbose solver output
         save_results (bool): whether to save the results to a file
         results_filepath (str): the path to save the results to
+        use_socp_relax (bool): whether to use socp relaxation on distance
+            variables
+        use_orthogonal_constraint (bool): whether to use orthogonal
+            constraint on rotation variables
     """
-    solver_options = ["ipopt", "snopt", "default"]
+    solver_options = ["gurobi", "ipopt", "snopt", "default"]
     assert solver in solver_options, f"Invalid solver, must be from: {solver_options}"
 
     model = MathematicalProgram()
 
     # form objective function
-    translations, rotations = add_pose_variables(model, data)
+    translations, rotations = add_pose_variables(model, data, use_orthogonal_constraint)
     assert len(translations) == len(rotations)
 
     landmarks = add_landmark_variables(model, data)
-    distances = add_distance_variables(model, data, translations, landmarks)
+    distances = add_distance_variables(
+        model, data, translations, landmarks, use_socp_relax
+    )
 
     add_distances_cost(model, distances, data)
     add_odom_cost(model, translations, rotations, data)
@@ -160,6 +169,9 @@ def solve_mle_problem(
         # debug_path = expanduser("~/snopt_debug.out")
         # model.SetSolverOption(snopt_solver.solver_id(), "print file", debug_path)
         result = snopt_solver.Solve(model)
+    elif solver == "gurobi":
+        gurobi_solver = GurobiSolver()
+        gurobi_solver.Solve(model)
     else:
         raise ValueError(f"Unknown solver: {solver}")
 
