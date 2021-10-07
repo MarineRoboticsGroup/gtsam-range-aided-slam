@@ -46,7 +46,6 @@ def get_results_filename(
         file_name += "socp"
     else:
         file_name += "nosocp"
-
     file_name += "_"
 
     # add in indicator for orthogonal constraints
@@ -54,7 +53,6 @@ def get_results_filename(
         file_name += "orth"
     else:
         file_name += "noorth"
-
     file_name += "_"
 
     # add in results.txt and return
