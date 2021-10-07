@@ -40,6 +40,8 @@ def get_results_filename(
         str: the file name giving details of the solver params
     """
     file_name = f"{solver}_"
+
+    # add in indicator for SOCP relaxation
     if use_socp_relax:
         file_name += "socp"
     else:
@@ -47,6 +49,7 @@ def get_results_filename(
 
     file_name += "_"
 
+    # add in indicator for orthogonal constraints
     if use_orthogonal_constraints:
         file_name += "orth"
     else:
@@ -54,6 +57,7 @@ def get_results_filename(
 
     file_name += "_"
 
+    # add in results.txt and return
     file_name += "results.txt"
     return file_name
 
