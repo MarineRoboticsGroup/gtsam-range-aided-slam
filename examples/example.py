@@ -65,7 +65,7 @@ if __name__ == "__main__":
     data_folders = get_folders_in_dir(base_dir)
     data_folders.sort(key=lambda x: len(x))
 
-    solver = "gurobi"
+    solver = "mosek"
     verbose = False
     save_results = True
     socp_relaxation = True

@@ -7,6 +7,7 @@ from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve  # ty
 from pydrake.solvers.ipopt import IpoptSolver
 from pydrake.solvers.snopt import SnoptSolver
 from pydrake.solvers.gurobi import GurobiSolver
+from pydrake.solvers.mosek import MosekSolver
 
 from ro_slam.qcqp_utils import (
     pin_first_pose,
@@ -121,7 +122,7 @@ def solve_mle_problem(
         use_orthogonal_constraint (bool): whether to use orthogonal
             constraint on rotation variables
     """
-    solver_options = ["gurobi", "ipopt", "snopt", "default"]
+    solver_options = ["mosek", "gurobi", "ipopt", "snopt", "default"]
     assert solver in solver_options, f"Invalid solver, must be from: {solver_options}"
 
     model = MathematicalProgram()
@@ -172,6 +173,9 @@ def solve_mle_problem(
     elif solver == "gurobi":
         gurobi_solver = GurobiSolver()
         gurobi_solver.Solve(model)
+    elif solver == "mosek":
+        mosek_solver = MosekSolver()
+        mosek_solver.Solve(model)
     else:
         raise ValueError(f"Unknown solver: {solver}")
 
