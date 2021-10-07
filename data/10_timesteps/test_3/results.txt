@@ -1,0 +1,13 @@
+State 0 | Translation: [0.0 0.0] | Rotation: 0.00
+State 1 | Translation: [0.0 1.0] | Rotation: 1.57
+State 2 | Translation: [0.0 2.0] | Rotation: 1.57
+State 3 | Translation: [1.0 2.0] | Rotation: -0.00
+State 4 | Translation: [1.9 2.0] | Rotation: -0.00
+State 5 | Translation: [3.0 2.0] | Rotation: -0.00
+State 6 | Translation: [3.9 2.0] | Rotation: -0.00
+State 7 | Translation: [3.9 1.0] | Rotation: -1.57
+State 8 | Translation: [ 3.9 -0.0] | Rotation: -1.57
+State 9 | Translation: [2.9 0.0] | Rotation: 3.14
+State 10 | Translation: [1.9 0.0] | Rotation: 3.14
+Is optimization successful? True
+optimal cost: 19.715925822791185

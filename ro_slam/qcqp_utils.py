@@ -4,9 +4,9 @@ from typing import List, Tuple, Union, Dict
 import re
 
 from ro_slam.factor_graph.factor_graph import FactorGraphData
-from ro_slam.utils import _check_square
+from ro_slam.utils import _check_square, _check_rotation_matrix
 
-from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve  # type: ignore
+from pydrake.solvers.mathematicalprogram import MathematicalProgram, QuadraticConstraint  # type: ignore
 from pydrake.solvers.mixed_integer_rotation_constraint import (  # type: ignore
     MixedIntegerRotationConstraintGenerator as MIRCGenerator,
 )
@@ -42,23 +42,12 @@ def add_pose_variables(
         translations.append(add_translation_var(model, trans_name, data.dimension))
 
         rot_name = f"pose{pose_idx}_rotation"
-        rotations.append(add_rotation_var(model, rot_name, data.dimension))
+        rot_var = add_rotation_var(model, rot_name, data.dimension)
+        rotations.append(rot_var)
 
         # TODO test out more efficient constraints?
         # add in rotation constraint (must be in orthogonal group)
-        # I_d = np.eye(data.dimension)
-        # cnt = 0
-        # for i in range(data.dimension):
-        #     # this is the i-th column of the rotation matrix
-        #     col_i = rotations[-1].column_as_MVar(i)
-        #     for j in range(i, data.dimension):
-        #         # this is the j-th column of the rotation matrix
-        #         col_j = rotations[-1].column_as_MVar(j)
-        #         model.Equation(
-        #             col_i @ col_j == I_d[i, j],
-        #             name=f"rot_constr_{pose_idx}_{cnt}",
-        #         )
-        #         cnt += 1
+        set_orthogonal_constraint(model, rot_var)
 
     return translations, rotations
 
@@ -126,8 +115,8 @@ def add_distance_variables(
             model.AddLorentzConeConstraint(distances[dist_key], diff)
         else:
             # nonconvex quadratic constraint
-            model.AddConstraint(
-                (diff ** 2).sum() == distances[dist_key] * distances[dist_key]
+            add_drake_distance_equality_constraint(
+                model, trans_i, land_j, distances[dist_key]
             )
 
     return distances
@@ -144,7 +133,9 @@ def add_distance_var(model: MathematicalProgram, name: str) -> np.ndarray:
     Returns:
         np.ndarray: The variable.
     """
-    return model.addContinuousVariables(1, name=name)
+    dist_var = model.NewContinuousVariables(1, name=name)
+    model.AddBoundingBoxConstraint(0, np.inf, dist_var)
+    return dist_var
 
 
 def add_rotation_var(model: MathematicalProgram, name: str, dim: int) -> np.ndarray:
@@ -160,8 +151,9 @@ def add_rotation_var(model: MathematicalProgram, name: str, dim: int) -> np.ndar
     Returns:
         np.ndarray: The variable representing the rotation of the robot
     """
-    var = model.NewContinuousVariables(rows=dim, cols=dim, name=name)
-    return var
+    rot_var = model.NewContinuousVariables(rows=dim, cols=dim, name=name)
+    model.AddBoundingBoxConstraint(-1, 1, rot_var)
+    return rot_var
 
 
 def add_translation_var(model: MathematicalProgram, name: str, dim: int) -> np.ndarray:
@@ -178,6 +170,7 @@ def add_translation_var(model: MathematicalProgram, name: str, dim: int) -> np.n
     """
     assert dim == 2 or dim == 3
     var = model.NewContinuousVariables(rows=dim, name=name)
+    model.AddBoundingBoxConstraint(-np.inf, np.inf, var)
     return var
 
 
@@ -209,7 +202,7 @@ def add_distances_cost(
         # k_ij * ||d_ij - d_ij^meas||^2
         dist_diff = distances[dist_key] - range_measure.dist
 
-        model.AddQuadraticCost(range_measure.weight * (dist_diff ** 2))
+        model.AddQuadraticCost(range_measure.weight * (dist_diff ** 2).sum())
 
 
 def add_odom_cost(
@@ -279,7 +272,7 @@ def set_distance_init_gt(
         pose_idx = range_measure.pose_idx
         landmark_idx = range_measure.landmark_idx
         dist_key = (pose_idx, landmark_idx)
-        model.SetInitialGuess(distances[dist_key], range_measure.dist)
+        model.SetInitialGuess(distances[dist_key][0], range_measure.dist)
 
 
 def init_rotation_variable(
@@ -454,8 +447,28 @@ def set_orthogonal_constraint(model: MathematicalProgram, mat: np.ndarray) -> No
         mat (np.ndarray): the matrix to constrain
     """
     assert mat.shape[0] == mat.shape[1], "matrix must be square"
-    I_d = np.eye(mat.shape[0])
-    add_drake_matrix_equality_constraint(model, mat.T @ mat, I_d)
+    d = mat.shape[0]
+    dot_prod_mat = np.eye(2 * d)
+    dot_prod_mat[:d, d:] = -np.eye(d)
+    dot_prod_mat[d:, :d] = -np.eye(d)
+
+    for i in range(d):
+        for j in range(i, d):
+            # set the constraint
+
+            col_i = mat[:, i]
+
+            if i == j:
+                # set diagonal constraint
+                const = model.AddConstraint((col_i ** 2).sum() == 1)
+            else:
+                # set off-diagonal constraint
+                col_j = mat[:, j]
+                const = model.AddConstraint(
+                    col_i[0] * col_j[0] + col_i[1] * col_j[1] == 0
+                )
+
+    # add_drake_matrix_equality_constraint(model, mat.T @ mat, I_d)
 
 
 def set_mixed_int_rotation_constraint(
@@ -506,4 +519,36 @@ def add_drake_matrix_equality_constraint(
         lb=mat.flatten(),
         ub=mat.flatten(),
         vars=var.flatten(),
+    )
+
+
+def add_drake_distance_equality_constraint(
+    model: MathematicalProgram, trans: np.ndarray, land: np.ndarray, dist: np.ndarray
+) -> None:
+    """Adds a constraint of the form
+    ||trans-land||_2^2 == dist**2
+
+    Args:
+        model (MathematicalProgram): [description]
+        trans (np.ndarray): [description]
+        land (np.ndarray): [description]
+        dist (np.ndarray): [description]
+    """
+    assert len(trans) == len(land), "must be same dimension"
+    assert len(dist) == 1, "must be a scalar"
+
+    d = len(trans)
+    I_d = np.eye(len(trans))
+    q_size = 2 * d + 1
+    Q = np.zeros((q_size, q_size))
+    Q[:2, :2] = I_d
+    Q[2:4, 2:4] = I_d
+    Q[:2, 2:4] = -I_d
+    Q[2:4, :2] = -I_d
+    Q[-1, -1] = -1
+
+    quad_constraint = QuadraticConstraint(Q, np.zeros((q_size, 1)), lb=0.0, ub=0.0)
+    model.AddConstraint(
+        quad_constraint,
+        vars=np.asarray([*trans.flatten(), *land.flatten(), dist[0]]).flatten(),
     )

@@ -42,6 +42,17 @@ def _print_eigvals(
     print("\n\n\n")
 
 
+def _check_rotation_matrix(R: np.ndarray):
+    """
+    Checks that R is a rotation matrix.
+
+    Args:
+        R (np.ndarray): the candidate rotation matrix
+    """
+    d = R.shape[0]
+    assert np.allclose(R.T @ R, np.eye(d), rtol=1e-3, atol=1e-3), f"R.T @ R: {R.T @ R}"
+
+
 def _check_square(mat: np.ndarray):
     assert mat.shape[0] == mat.shape[1], "matrix must be square"
 
