@@ -6,7 +6,10 @@ from typing import List, Tuple
 
 sys.path.insert(0, os.path.abspath(".."))
 
-from ro_slam.factor_graph.parse_factor_graph import parse_efg_factor_graph_file, parse_pickle_factor_graph_file
+from ro_slam.factor_graph.parse_factor_graph import (
+    parse_efg_factor_graph_file,
+    parse_pickle_factor_graph_file,
+)
 from ro_slam.solve_mle_qcqp import solve_mle_problem, SolverParams
 
 
@@ -16,6 +19,7 @@ def get_folders_in_dir(path) -> List[str]:
 
 def get_files_in_dir(path) -> List[str]:
     return [join(path, f) for f in os.listdir(path) if os.path.isfile(join(path, f))]
+
 
 def recursively_find_pkl_files(dir) -> List[Tuple[str, str]]:
     """Recursively finds all .pkl files in the directory and its subdirectories
@@ -30,8 +34,8 @@ def recursively_find_pkl_files(dir) -> List[Tuple[str, str]]:
 
     def num_timesteps_from_path(path: str) -> int:
         trailing_phrase = "_timesteps"
-        info = re.search(r"\d+"+trailing_phrase, path).group(0) # type: ignore
-        num_timesteps = int(info[:-len(trailing_phrase)])
+        info = re.search(r"\d+" + trailing_phrase, path).group(0)  # type: ignore
+        num_timesteps = int(info[: -len(trailing_phrase)])
         return num_timesteps
 
     pkl_files = []
