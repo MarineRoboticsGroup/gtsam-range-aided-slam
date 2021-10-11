@@ -1,6 +1,6 @@
 import numpy as np
 from os.path import expanduser, join
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Union
 import matplotlib.pyplot as plt  # type: ignore
 import scipy.linalg as la  # type: ignore
 from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve  # type: ignore
@@ -98,9 +98,27 @@ def check_rotations(result, rotations):
         _check_rotation_matrix(rot_result)
 
 
+def get_solver(
+    solver_name: str,
+) -> Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver]:
+    """
+    Returns the solver for the given name
+    """
+    if solver_name == "ipopt":
+        return IpoptSolver()
+    elif solver_name == "snopt":
+        return SnoptSolver()
+    elif solver_name == "gurobi":
+        return GurobiSolver()
+    elif solver_name == "mosek":
+        return MosekSolver()
+    else:
+        raise ValueError(f"Unknown solver: {solver_name}")
+
+
 def solve_mle_problem(
     data: FactorGraphData,
-    solver: str,
+    solver_type: str,
     verbose: bool,
     save_results: bool,
     results_filepath: str,
@@ -123,7 +141,14 @@ def solve_mle_problem(
             constraint on rotation variables
     """
     solver_options = ["mosek", "gurobi", "ipopt", "snopt", "default"]
-    assert solver in solver_options, f"Invalid solver, must be from: {solver_options}"
+    assert (
+        solver_type in solver_options
+    ), f"Invalid solver, must be from: {solver_options}"
+
+    if solver_type in ["mosek", "gurobi"]:
+        assert (
+            use_socp_relax and not use_orthogonal_constraint
+        ), "Mosek and Gurobi solver only used to solve convex problems"
 
     model = MathematicalProgram()
 
@@ -159,25 +184,12 @@ def solve_mle_problem(
     # perform optimization
     print("Solving MLE problem...")
 
-    if solver == "default":
-        result = Solve(model)
-    elif solver == "ipopt":
-        ipopt_solver = IpoptSolver()
-        # model.SetSolverOption(ipopt_solver.solver_id(), "print_level", 5)
-        result = ipopt_solver.Solve(model)
-    elif solver == "snopt":
-        snopt_solver = SnoptSolver()
-        # debug_path = expanduser("~/snopt_debug.out")
-        # model.SetSolverOption(snopt_solver.solver_id(), "print file", debug_path)
-        result = snopt_solver.Solve(model)
-    elif solver == "gurobi":
-        gurobi_solver = GurobiSolver()
-        gurobi_solver.Solve(model)
-    elif solver == "mosek":
-        mosek_solver = MosekSolver()
-        mosek_solver.Solve(model)
-    else:
-        raise ValueError(f"Unknown solver: {solver}")
+    try:
+        solver = get_solver(solver_type)
+        result = solver.Solve(model)
+    except Exception as e:
+        print("Error: ", e)
+        return
 
     check_rotations(result, rotations)
 

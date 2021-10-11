@@ -246,14 +246,16 @@ def add_odom_cost(
         trans_weight = odom_measure.translation_weight
         trans_measure = odom_measure.translation_vector
         term = t_j - t_i - (R_i @ trans_measure)
-        model.AddQuadraticCost(trans_weight * (term ** 2).sum())
+        model.AddQuadraticCost(trans_weight * (term ** 2).sum(), is_convex=True)
 
         # rotation component of cost
         # tau_ij * || R_j - (R_i @ R_ij^\top) ||_\frob
         rot_weight = odom_measure.rotation_weight
         rot_measure = odom_measure.rotation_matrix
         diff_rot_matrix = R_j - (R_i @ rot_measure)
-        model.AddQuadraticCost(rot_weight * (diff_rot_matrix ** 2).sum())
+        model.AddQuadraticCost(
+            rot_weight * (diff_rot_matrix ** 2).sum(), is_convex=True
+        )
 
 
 ##### Initialization strategies #####
@@ -450,20 +452,21 @@ def set_orthogonal_constraint(model: MathematicalProgram, mat: np.ndarray) -> No
         mat (np.ndarray): the matrix to constrain
     """
     assert mat.shape[0] == mat.shape[1], "matrix must be square"
+    assert mat.shape[0] == 2, "only support 2d matrices right now"
     d = mat.shape[0]
 
-    # for i in range(d):
-    #     for j in range(i, d):
-    #         col_i = mat[:, i]
-    #         if i == j:
-    #             # set diagonal constraint
-    #             const = model.AddConstraint((col_i ** 2).sum() == 1)
-    #         else:
-    #             # set off-diagonal constraint
-    #             col_j = mat[:, j]
-    #             const = model.AddConstraint(
-    #                 col_i[0] * col_j[0] + col_i[1] * col_j[1] == 0
-    #             )
+    for i in range(d):
+        for j in range(i, d):
+            col_i = mat[:, i]
+            if i == j:
+                # set diagonal constraint
+                const = model.AddConstraint(col_i[0] ** 2 + col_i[1] ** 2 == 1)
+            else:
+                # set off-diagonal constraint
+                col_j = mat[:, j]
+                const = model.AddConstraint(
+                    col_i[0] * col_j[0] + col_i[1] * col_j[1] == 0
+                )
 
 
 def set_mixed_int_rotation_constraint(
@@ -506,14 +509,13 @@ def add_drake_matrix_equality_constraint(
     """
     assert var.shape == mat.shape, "variable and matrix must have same shape"
 
-    def equality_constraint_evaluator(mat):
-        return mat.flatten()
-
-    model.AddConstraint(
-        equality_constraint_evaluator,
-        lb=mat.flatten(),
-        ub=mat.flatten(),
-        vars=var.flatten(),
+    var_vec = var.flatten()
+    mat_vec = mat.flatten()
+    I = np.eye(len(var_vec))
+    model.AddLinearEqualityConstraint(
+        I,
+        mat_vec,
+        var_vec,
     )
 
 
