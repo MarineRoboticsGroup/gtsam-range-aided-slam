@@ -8,6 +8,7 @@ from pydrake.solvers.ipopt import IpoptSolver
 from pydrake.solvers.snopt import SnoptSolver
 from pydrake.solvers.gurobi import GurobiSolver
 from pydrake.solvers.mosek import MosekSolver
+import attr
 
 from ro_slam.qcqp_utils import (
     pin_first_pose,
@@ -23,9 +24,17 @@ from ro_slam.qcqp_utils import (
     set_distance_init_gt,
     set_landmark_init_gt,
 )
-from ro_slam.factor_graph.parse_factor_graph import parse_factor_graph_file
 from ro_slam.factor_graph.factor_graph import FactorGraphData
 from ro_slam.utils import get_theta_from_matrix, _check_rotation_matrix
+
+
+@attr.s(frozen=True)
+class SolverParams:
+    solver: str = attr.ib()
+    verbose: bool = attr.ib()
+    save_results: bool = attr.ib()
+    use_socp_relax: bool = attr.ib()
+    use_orthogonal_constraint: bool = attr.ib()
 
 
 def print_state(
@@ -118,12 +127,8 @@ def get_solver(
 
 def solve_mle_problem(
     data: FactorGraphData,
-    solver_type: str,
-    verbose: bool,
-    save_results: bool,
+    solver_params: SolverParams,
     results_filepath: str,
-    use_socp_relax: bool,
-    use_orthogonal_constraint: bool,
 ):
     """
     Takes the data describing the problem and returns the MLE solution to the
@@ -142,23 +147,25 @@ def solve_mle_problem(
     """
     solver_options = ["mosek", "gurobi", "ipopt", "snopt", "default"]
     assert (
-        solver_type in solver_options
+        solver_params.solver in solver_options
     ), f"Invalid solver, must be from: {solver_options}"
 
-    if solver_type in ["mosek", "gurobi"]:
+    if solver_params.solver in ["mosek", "gurobi"]:
         assert (
-            use_socp_relax and not use_orthogonal_constraint
+            solver_params.use_socp_relax and not solver_params.use_orthogonal_constraint
         ), "Mosek and Gurobi solver only used to solve convex problems"
 
     model = MathematicalProgram()
 
     # form objective function
-    translations, rotations = add_pose_variables(model, data, use_orthogonal_constraint)
+    translations, rotations = add_pose_variables(
+        model, data, solver_params.use_orthogonal_constraint
+    )
     assert len(translations) == len(rotations)
 
     landmarks = add_landmark_variables(model, data)
     distances = add_distance_variables(
-        model, data, translations, landmarks, use_socp_relax
+        model, data, translations, landmarks, solver_params.use_socp_relax
     )
 
     add_distances_cost(model, distances, data)
@@ -185,7 +192,7 @@ def solve_mle_problem(
     print("Solving MLE problem...")
 
     try:
-        solver = get_solver(solver_type)
+        solver = get_solver(solver_params.solver)
         result = solver.Solve(model)
     except Exception as e:
         print("Error: ", e)
@@ -193,12 +200,12 @@ def solve_mle_problem(
 
     check_rotations(result, rotations)
 
-    if verbose:
+    if solver_params.verbose:
         for i in range(len(translations)):
             print_state(result, translations, rotations, i)
 
         print(f"Is optimization successful? {result.is_success()}")
         print(f"optimal cost: {result.get_optimal_cost()}")
 
-    if save_results:
+    if solver_params.save_results:
         save_results_to_file(result, results_filepath, translations, rotations)

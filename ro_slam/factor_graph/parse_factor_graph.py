@@ -1,7 +1,7 @@
-from typing import Tuple, List, Dict
-from os import listdir, mkdir
-from os.path import isfile, isdir, join, expanduser, dirname
+from typing import List
+from os.path import isfile, join, expanduser
 import numpy as np
+import pickle
 
 from ro_slam.factor_graph.factor_graph import (
     OdomMeasurement,
@@ -42,7 +42,7 @@ def get_covariance_matrix_from_list(covar_list: List) -> np.ndarray:
     return covar_matrix
 
 
-def parse_factor_graph_file(filepath: str) -> FactorGraphData:
+def parse_efg_factor_graph_file(filepath: str) -> FactorGraphData:
     """
     Parse a factor graph file to extract the factors and variables.
 
@@ -53,6 +53,7 @@ def parse_factor_graph_file(filepath: str) -> FactorGraphData:
         FactorGraphData: The factor graph data.
     """
     assert isfile(filepath), f"{filepath} is not a file"
+    assert filepath.endswith(".fg"), f"{filepath} is not an efg file"
 
     pose_var_header = "Variable Pose SE2"
     landmark_var_header = "Variable Landmark R2"
@@ -135,8 +136,24 @@ def parse_factor_graph_file(filepath: str) -> FactorGraphData:
     )
 
 
+def parse_pickle_factor_graph_file(filepath: str) -> FactorGraphData:
+    """
+    Parse a factor graph file to extract the factors and variables.
+
+    Args:
+        filepath: The path to the factor graph file.
+
+    Returns:
+        FactorGraphData: The factor graph data.
+    """
+    assert isfile(filepath), f"{filepath} is not a file"
+    assert filepath.endswith(".pkl"), f"{filepath} is not a pickle file"
+    fg = pickle.load(open(filepath, "rb"))
+    return fg
+
+
 if __name__ == "__main__":
     filepath = expanduser(
         join("~", "data", "example_factor_graphs", "case0", "factor_graph.fg")
     )
-    fg = parse_factor_graph_file(filepath)
+    fg = parse_efg_factor_graph_file(filepath)
