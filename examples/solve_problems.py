@@ -65,8 +65,8 @@ if __name__ == "__main__":
     data_folders = get_folders_in_dir(base_dir)
     data_folders.sort(key=lambda x: len(x))
 
-    solver = "mosek"
-    verbose = False
+    solver = "gurobi"
+    verbose = True
     save_results = True
     socp_relaxation = True
     orthogonal_constraints = False
@@ -74,9 +74,9 @@ if __name__ == "__main__":
     # get all of the data folders (broken down by different simulation settings)
     for d_fold in data_folders:
 
-        # temporarily skipping the larger problems
-        if "1000" in d_fold or "100" in d_fold:
-            continue
+        # # temporarily skipping the larger problems
+        # if "1000" in d_fold or "100" in d_fold:
+        #     continue
 
         # get the folders holding the individual experiments just with different
         # random seeds
