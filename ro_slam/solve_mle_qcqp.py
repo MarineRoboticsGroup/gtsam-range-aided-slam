@@ -24,7 +24,7 @@ from ro_slam.qcqp_utils import (
     set_distance_init_gt,
     set_landmark_init_gt,
 )
-from ro_slam.factor_graph.factor_graph import FactorGraphData
+from factor_graph.factor_graph import FactorGraphData
 from ro_slam.utils import get_theta_from_matrix, _check_rotation_matrix
 
 

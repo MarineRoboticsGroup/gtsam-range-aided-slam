@@ -3,7 +3,7 @@ import attr
 from typing import List, Tuple, Union, Dict
 import re
 
-from ro_slam.factor_graph.factor_graph import FactorGraphData
+from factor_graph.factor_graph import FactorGraphData
 from ro_slam.utils import _check_square, _check_rotation_matrix
 
 from pydrake.solvers.mathematicalprogram import MathematicalProgram, QuadraticConstraint  # type: ignore

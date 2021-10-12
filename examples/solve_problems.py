@@ -6,9 +6,9 @@ from typing import List, Tuple
 
 sys.path.insert(0, os.path.abspath(".."))
 
-from ro_slam.factor_graph.parse_factor_graph import (
-    parse_efg_factor_graph_file,
-    parse_pickle_factor_graph_file,
+from factor_graph.parse_factor_graph import (
+    parse_efg_file,
+    parse_pickle_file,
 )
 from ro_slam.solve_mle_qcqp import solve_mle_problem, SolverParams
 
@@ -128,9 +128,9 @@ if __name__ == "__main__":
 
         print(fg_filepath)
         if fg_filepath.endswith(".pkl"):
-            fg = parse_pickle_factor_graph_file(fg_filepath)
+            fg = parse_pickle_file(fg_filepath)
         elif fg_filepath.endswith(".fg"):
-            fg = parse_efg_factor_graph_file(fg_filepath)
+            fg = parse_efg_file(fg_filepath)
         else:
             raise ValueError(f"Unknown file type: {fg_filepath}")
 
