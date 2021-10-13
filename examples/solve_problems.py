@@ -21,8 +21,8 @@ def get_files_in_dir(path) -> List[str]:
     return [join(path, f) for f in os.listdir(path) if os.path.isfile(join(path, f))]
 
 
-def recursively_find_pkl_files(dir) -> List[Tuple[str, str]]:
-    """Recursively finds all .pkl files in the directory and its subdirectories
+def recursively_find_pickle_files(dir) -> List[Tuple[str, str]]:
+    """Recursively finds all .pickle files in the directory and its subdirectories
 
     Args:
         dir (str): the directory to search in
@@ -38,23 +38,25 @@ def recursively_find_pkl_files(dir) -> List[Tuple[str, str]]:
         num_timesteps = int(info[: -len(trailing_phrase)])
         return num_timesteps
 
-    pkl_files = []
+    pickle_files = []
     for root, _, files in os.walk(dir):
         for file in files:
-            if file.endswith(".pkl"):
-                pkl_files.append((root, file))
+            if file.endswith(".pickle"):
+                pickle_files.append((root, file))
 
-    pkl_files.sort(key=lambda x: num_timesteps_from_path(x[0]))
-    return pkl_files
+    pickle_files.sort(key=lambda x: num_timesteps_from_path(x[0]))
+    return pickle_files
 
 
 def get_factor_graph_file_in_dir(path) -> str:
 
     # prefer pickle files but also check for .fg files
-    pkl_files = [x for x in get_files_in_dir(path) if x.endswith(".pkl")]
-    if len(pkl_files) >= 1:
-        assert len(pkl_files) == 1, "There should be only one pkl file in the directory"
-        return pkl_files[0]
+    pickle_files = [x for x in get_files_in_dir(path) if x.endswith(".pickle")]
+    if len(pickle_files) >= 1:
+        assert (
+            len(pickle_files) == 1
+        ), "There should be only one pickle file in the directory"
+        return pickle_files[0]
 
     efg_files = [x for x in get_files_in_dir(path) if x.endswith(".fg")]
     if len(efg_files) >= 1:
@@ -102,7 +104,7 @@ def get_results_filename(
 
 
 if __name__ == "__main__":
-    base_dir = expanduser(join("~", "qcqp-range-only-slam", "data"))
+    base_dir = expanduser(join("~", "data", "example_factor_graphs"))
     solver_params = SolverParams(
         solver="gurobi",
         verbose=False,
@@ -111,12 +113,12 @@ if __name__ == "__main__":
         use_orthogonal_constraint=False,
     )
 
-    # do a recursive search and then test on all of the .pkl files found
-    pkl_files = recursively_find_pkl_files(base_dir)
-    for pkl_dir, pkl_file in pkl_files:
+    # do a recursive search and then test on all of the .pickle files found
+    pickle_files = recursively_find_pickle_files(base_dir)
+    for pickle_dir, pickle_file in pickle_files:
 
         # get the factor graph filepath
-        fg_filepath = join(pkl_dir, pkl_file)
+        fg_filepath = join(pickle_dir, pickle_file)
 
         # get the file name to save results to
         results_file_name = get_results_filename(
@@ -124,10 +126,10 @@ if __name__ == "__main__":
             solver_params.use_socp_relax,
             solver_params.use_orthogonal_constraint,
         )
-        results_filepath = join(pkl_dir, results_file_name)
+        results_filepath = join(pickle_dir, results_file_name)
 
         print(fg_filepath)
-        if fg_filepath.endswith(".pkl"):
+        if fg_filepath.endswith(".pickle"):
             fg = parse_pickle_file(fg_filepath)
         elif fg_filepath.endswith(".fg"):
             fg = parse_efg_file(fg_filepath)
@@ -136,7 +138,3 @@ if __name__ == "__main__":
 
         solve_mle_problem(fg, solver_params, results_filepath)
     print()
-
-# filepath = (
-#     "/home/alan/data/example_factor_graphs/15_loop_clos/test_9/factor_graph.fg"
-# )
