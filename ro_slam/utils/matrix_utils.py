@@ -16,7 +16,7 @@ def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
     _check_square(mat)
     s, v, _ = la.svd(mat)
     R_so = v.T @ np.diag(s) @ v
-    _check_rotation_matrix(R_so)
+    _check_rotation_matrix(R_so, soft_test=False)
     return R_so
 
 
