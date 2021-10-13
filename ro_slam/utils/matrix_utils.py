@@ -3,6 +3,23 @@ import scipy.linalg as la  # type: ignore
 from typing import List, Tuple
 
 
+def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
+    """
+    Rounds a matrix to special orthogonal form.
+
+    Args:
+        mat (np.ndarray): the matrix to round
+
+    Returns:
+        np.ndarray: the rounded matrix
+    """
+    _check_square(mat)
+    s, v, _ = la.svd(mat)
+    R_so = v.T @ np.diag(s) @ v
+    _check_rotation_matrix(R_so)
+    return R_so
+
+
 def get_theta_from_matrix(mat: np.ndarray):
     """
     Returns theta from a matrix M
@@ -11,48 +28,29 @@ def get_theta_from_matrix(mat: np.ndarray):
     return np.arctan2(mat[1, 0], mat[0, 0])
 
 
-def _print_eigvals(
-    M: np.ndarray, name: str = None, print_eigvec: bool = False, symmetric: bool = True
-):
-    """print the eigenvalues of a matrix"""
-
-    if name is not None:
-        print(name)
-
-    if print_eigvec:
-        # get the eigenvalues of the matrix
-        if symmetric:
-            eigvals, eigvecs = la.eigh(M)
-        else:
-            eigvals, eigvecs = la.eig(M)
-
-        # sort the eigenvalues and eigenvectors
-        idx = eigvals.argsort()[::1]
-        eigvals = eigvals[idx]
-        eigvecs = eigvecs[:, idx]
-
-        print(f"eigenvectors: {eigvecs}")
-    else:
-        if symmetric:
-            eigvals = la.eigvalsh(M)
-        else:
-            eigvals = la.eigvals(M)
-        print(f"eigenvalues\n{eigvals}")
-
-    print("\n\n\n")
+#### test functions ####
 
 
-def _check_rotation_matrix(R: np.ndarray):
+def _check_rotation_matrix(R: np.ndarray, soft_test: bool = True):
     """
     Checks that R is a rotation matrix.
 
     Args:
         R (np.ndarray): the candidate rotation matrix
+        soft_test (bool): if true just print if not rotation matrix, otherwise raise error
     """
     d = R.shape[0]
     is_orthogonal = np.allclose(R @ R.T, np.eye(d), rtol=1e-3, atol=1e-3)
     if not is_orthogonal:
         print(f"R not orthogonal: {R @ R.T}")
+        if not soft_test:
+            raise ValueError(f"R is not orthogonal {R @ R.T}")
+
+    has_correct_det = abs(np.linalg.det(R) - 1) < 1e-3
+    if not has_correct_det:
+        print(f"R det < 0: {np.linalg.det(R)}")
+        if not soft_test:
+            raise ValueError(f"R det incorrect {np.linalg.det(R)}")
 
 
 def _check_square(mat: np.ndarray):
@@ -90,6 +88,40 @@ def _check_is_laplacian(L: np.ndarray):
     assert np.allclose(L @ ones, zeros), f"L @ ones != zeros: {L @ ones}"
 
 
+#### print functions ####
+
+
+def _print_eigvals(
+    M: np.ndarray, name: str = None, print_eigvec: bool = False, symmetric: bool = True
+):
+    """print the eigenvalues of a matrix"""
+
+    if name is not None:
+        print(name)
+
+    if print_eigvec:
+        # get the eigenvalues of the matrix
+        if symmetric:
+            eigvals, eigvecs = la.eigh(M)
+        else:
+            eigvals, eigvecs = la.eig(M)
+
+        # sort the eigenvalues and eigenvectors
+        idx = eigvals.argsort()[::1]
+        eigvals = eigvals[idx]
+        eigvecs = eigvecs[:, idx]
+
+        print(f"eigenvectors: {eigvecs}")
+    else:
+        if symmetric:
+            eigvals = la.eigvalsh(M)
+        else:
+            eigvals = la.eigvals(M)
+        print(f"eigenvalues\n{eigvals}")
+
+    print("\n\n\n")
+
+
 def _matprint_block(mat, fmt="g"):
     col_maxes = [max([len(("{:" + fmt + "}").format(x)) for x in col]) for col in mat.T]
     num_col = mat.shape[1]
@@ -109,19 +141,3 @@ def _matprint_block(mat, fmt="g"):
 
     print(row_spacer)
     print("\n\n\n")
-
-
-def _general_kron(a, b):
-    """
-    Returns a CVXPY Expression representing the Kronecker product of a and b.
-
-    At most one of "a" and "b" may be CVXPY Variable objects.
-
-    :param a: 2D numpy ndarray, or a CVXPY Variable with a.ndim == 2
-    :param b: 2D numpy ndarray, or a CVXPY Variable with b.ndim == 2
-    """
-    expr = np.kron(a, b)
-    num_rows = expr.shape[0]
-    rows = [cp.hstack(expr[i, :]) for i in range(num_rows)]
-    full_expr = cp.vstack(rows)
-    return full_expr

@@ -10,7 +10,7 @@ from pydrake.solvers.gurobi import GurobiSolver
 from pydrake.solvers.mosek import MosekSolver
 import attr
 
-from ro_slam.qcqp_utils import (
+from ro_slam.utils.qcqp_utils import (
     pin_first_pose,
     add_pose_variables,
     add_landmark_variables,
@@ -25,7 +25,7 @@ from ro_slam.qcqp_utils import (
     set_landmark_init_gt,
 )
 from factor_graph.factor_graph import FactorGraphData
-from ro_slam.utils import get_theta_from_matrix, _check_rotation_matrix
+from ro_slam.utils.matrix_utils import get_theta_from_matrix, _check_rotation_matrix
 
 
 @attr.s(frozen=True)
@@ -39,9 +39,9 @@ class SolverParams:
 
 def print_state(
     result,
-    translations: List[np.ndarray],
-    rotations: List[np.ndarray],
-    idx: int,
+    translations: Dict[str, np.ndarray],
+    rotations: Dict[str, np.ndarray],
+    pose_key: str,
 ):
     """
     Prints the current state of the result
@@ -50,16 +50,16 @@ def print_state(
         result (MathematicalProgram): the result of the solution
         translations (List[np.ndarray]): the translations
         rotations (List[np.ndarray]): the rotations
-        idx (int): the index of the pose to print
+        pose_key (str): the key of the pose to print
     """
-    trans_solve = result.GetSolution(translations[idx]).round(decimals=2)
-    rot_solve = result.GetSolution(rotations[idx])
+    trans_solve = result.GetSolution(translations[pose_key]).round(decimals=2)
+    rot_solve = result.GetSolution(rotations[pose_key])
     theta_solve = get_theta_from_matrix(rot_solve)
 
     trans_string = np.array2string(trans_solve, precision=1, floatmode="fixed")
 
     status = (
-        f"State {idx}"
+        f"State {pose_key}"
         + f" | Translation: {trans_string}"
         + f" | Rotation: {theta_solve:.2f}"
     )
@@ -67,26 +67,29 @@ def print_state(
 
 
 def save_results_to_file(
-    result, filepath: str, translations: List[np.ndarray], rotations: List[np.ndarray]
+    result,
+    filepath: str,
+    translations: Dict[str, np.ndarray],
+    rotations: Dict[str, np.ndarray],
 ):
     """
     Saves the results to a file
 
-    args:
+    Args:
         result (MathematicalProgram): the result of the solution
         filepath (str): the path to save the results to
-        translations (List[np.ndarray]): the translations
-        rotations (List[np.ndarray]): the rotations
+        translations (Dict[str, np.ndarray]): the translations
+        rotations (Dict[str, np.ndarray]): the rotations
     """
     with open(filepath, "w") as f:
-        for idx in range(len(translations)):
-            trans_solve = result.GetSolution(translations[idx]).round(decimals=2)
-            rot_solve = result.GetSolution(rotations[idx])
+        for pose_key in translations.keys():
+            trans_solve = result.GetSolution(translations[pose_key]).round(decimals=2)
+            rot_solve = result.GetSolution(rotations[pose_key])
             theta_solve = get_theta_from_matrix(rot_solve)
 
             trans_string = np.array2string(trans_solve, precision=1, floatmode="fixed")
             status = (
-                f"State {idx}"
+                f"State {pose_key}"
                 + f" | Translation: {trans_string}"
                 + f" | Rotation: {theta_solve:.2f}\n"
             )
@@ -102,8 +105,8 @@ def check_rotations(result, rotations):
     """
     checks that results are valid rotations
     """
-    for rotation in rotations:
-        rot_result = result.GetSolution(rotation)
+    for rot_key in rotations.keys():
+        rot_result = result.GetSolution(rotations[rot_key])
         _check_rotation_matrix(rot_result)
 
 
@@ -161,7 +164,7 @@ def solve_mle_problem(
     translations, rotations = add_pose_variables(
         model, data, solver_params.use_orthogonal_constraint
     )
-    assert len(translations) == len(rotations)
+    assert (translations.keys()) == (rotations.keys())
 
     landmarks = add_landmark_variables(model, data)
     distances = add_distance_variables(
@@ -172,7 +175,7 @@ def solve_mle_problem(
     add_odom_cost(model, translations, rotations, data)
 
     # pin first pose at origin
-    pin_first_pose(model, translations[0], rotations[0])
+    pin_first_pose(model, translations["A0"], rotations["A0"])
 
     ### Rotation Initialization
     set_rotation_init_gt(model, rotations, data)
@@ -201,8 +204,8 @@ def solve_mle_problem(
     check_rotations(result, rotations)
 
     if solver_params.verbose:
-        for i in range(len(translations)):
-            print_state(result, translations, rotations, i)
+        for pose_key in translations.keys():
+            print_state(result, translations, rotations, pose_key)
 
         print(f"Is optimization successful? {result.is_success()}")
         print(f"optimal cost: {result.get_optimal_cost()}")
