@@ -14,42 +14,98 @@ def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
         np.ndarray: the rounded matrix
     """
     _check_square(mat)
-    s, v, _ = la.svd(mat)
-    R_so = v.T @ np.diag(s) @ v
-    _check_rotation_matrix(R_so, soft_test=False)
+    _check_rotation_matrix(mat, assert_test=False)
+    S, D, Vh = la.svd(mat)
+    R_so = S @ Vh
+    _check_rotation_matrix(R_so, assert_test=True)
     return R_so
 
 
-def get_theta_from_matrix(mat: np.ndarray):
+def get_theta_from_matrix_so_projection(mat: np.ndarray) -> float:
+    """
+    Returns theta from the projection of the matrix M onto the special
+    orthogonal group
+
+    Args:
+        mat (np.ndarray): the candidate rotation matrix
+
+    Returns:
+        float: theta
+
+    """
+    R_so = round_to_special_orthogonal(mat)
+    return get_theta_from_matrix(R_so)
+
+
+def get_theta_from_matrix(mat: np.ndarray) -> float:
     """
     Returns theta from a matrix M
+
+    Args:
+        mat (np.ndarray): the candidate rotation matrix
+
+    Returns:
+        float: theta
     """
     _check_square(mat)
-    return np.arctan2(mat[1, 0], mat[0, 0])
+    return float(np.arctan2(mat[1, 0], mat[0, 0]))
+
+
+def get_random_vector(dim: int) -> np.ndarray:
+    """Returns a random vector of size dim
+
+    Args:
+        dim (int): the dimension of the vector
+
+    Returns:
+        np.ndarray: the random vector
+    """
+    return np.random.rand(dim)
+
+
+def get_rotation_matrix_from_theta(theta: float) -> np.ndarray:
+    """Returns the rotation matrix from theta
+
+    Args:
+        theta (float): the angle of rotation
+
+    Returns:
+        np.ndarray: the rotation matrix
+    """
+    return np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+
+
+def get_random_rotation_matrix(dim: int = 2) -> np.ndarray:
+    """Returns a random rotation matrix of size dim x dim"""
+    if dim == 2:
+        theta = 2 * np.pi * np.random.rand()
+        return get_rotation_matrix_from_theta(theta)
+    else:
+        raise NotImplementedError("Only implemented for dim = 2")
 
 
 #### test functions ####
 
 
-def _check_rotation_matrix(R: np.ndarray, soft_test: bool = True):
+def _check_rotation_matrix(R: np.ndarray, assert_test: bool = False):
     """
     Checks that R is a rotation matrix.
 
     Args:
         R (np.ndarray): the candidate rotation matrix
-        soft_test (bool): if true just print if not rotation matrix, otherwise raise error
+        assert_test (bool): if false just print if not rotation matrix, otherwise raise error
     """
     d = R.shape[0]
     is_orthogonal = np.allclose(R @ R.T, np.eye(d), rtol=1e-3, atol=1e-3)
     if not is_orthogonal:
         print(f"R not orthogonal: {R @ R.T}")
-        if not soft_test:
+        if assert_test:
             raise ValueError(f"R is not orthogonal {R @ R.T}")
 
     has_correct_det = abs(np.linalg.det(R) - 1) < 1e-3
     if not has_correct_det:
-        print(f"R det < 0: {np.linalg.det(R)}")
-        if not soft_test:
+        print(f"R det != 1: {np.linalg.det(R)}")
+        if assert_test:
             raise ValueError(f"R det incorrect {np.linalg.det(R)}")
 
 

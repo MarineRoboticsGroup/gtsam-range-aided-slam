@@ -1,10 +1,12 @@
 import numpy as np
-import attr
 from typing import List, Tuple, Union, Dict
-import re
 
 from factor_graph.factor_graph import FactorGraphData
-from ro_slam.utils.matrix_utils import _check_square
+from ro_slam.utils.matrix_utils import (
+    _check_square,
+    get_random_vector,
+    get_random_rotation_matrix,
+)
 
 from pydrake.solvers.mathematicalprogram import MathematicalProgram, QuadraticConstraint  # type: ignore
 from pydrake.solvers.mixed_integer_rotation_constraint import (  # type: ignore
@@ -35,21 +37,22 @@ def add_pose_variables(
     translations: Dict[str, np.ndarray] = {}
     rotations: Dict[str, np.ndarray] = {}
 
-    for pose in data.pose_variables:
-        # add new translation variables d-dimensional vector
-        pose_name = pose.name
-        trans_name = f"{pose_name}_translation"
-        trans_var = add_translation_var(model, trans_name, data.dimension)
-        translations[pose_name] = trans_var
+    for pose_chain in data.pose_variables:
+        for pose in pose_chain:
+            # add new translation variables d-dimensional vector
+            pose_name = pose.name
+            trans_name = f"{pose_name}_translation"
+            trans_var = add_translation_var(model, trans_name, data.dimension)
+            translations[pose_name] = trans_var
 
-        rot_name = f"{pose_name}_rotation"
-        rot_var = add_rotation_var(model, rot_name, data.dimension)
-        rotations[pose_name] = rot_var
+            rot_name = f"{pose_name}_rotation"
+            rot_var = add_rotation_var(model, rot_name, data.dimension)
+            rotations[pose_name] = rot_var
 
-        # TODO test out more efficient constraints?
-        # add in rotation constraint (i.e. matrix must be in orthogonal group)
-        if orthogonal_constraint:
-            set_orthogonal_constraint(model, rot_var)
+            # TODO test out more efficient constraints?
+            # add in rotation constraint (i.e. matrix must be in orthogonal group)
+            if orthogonal_constraint:
+                set_orthogonal_constraint(model, rot_var)
 
     return translations, rotations
 
@@ -284,6 +287,41 @@ def set_distance_init_gt(
         model.SetInitialGuess(distances[dist_key][0], range_measure.dist)
 
 
+def set_distance_init_measured(
+    model: MathematicalProgram,
+    distances: Dict[Tuple[int, int], np.ndarray],
+    data: FactorGraphData,
+):
+    """Initialize the distance variables to the measured distances.
+
+    Args:
+        model (MathematicalProgram): the optimization model
+        distances (Dict[Tuple[int, int], np.ndarray]): the distance variables
+        data (FactorGraphData): the factor graph data
+    """
+    print("Setting distance initial points to measured distance")
+    for range_measure in data.range_measurements:
+        pose_key = range_measure.pose_key
+        landmark_key = range_measure.landmark_key
+        dist_key = (pose_key, landmark_key)
+        model.SetInitialGuess(distances[dist_key][0], range_measure.dist)
+
+
+def set_distance_init_random(
+    model: MathematicalProgram,
+    distances: Dict[Tuple[int, int], np.ndarray],
+):
+    """random initial guess for the distance variables.
+
+    Args:
+        model (MathematicalProgram): the optimization model
+        distances (Dict[Tuple[int, int], np.ndarray]): the distance variables
+    """
+    print("Setting distance initial points to random")
+    for dist_key in distances:
+        model.SetInitialGuess(distances[dist_key], get_random_vector(dim=1))
+
+
 def init_rotation_variable(
     model: MathematicalProgram, rot: np.ndarray, mat: np.ndarray
 ):
@@ -351,11 +389,27 @@ def set_rotation_init_gt(
         data (FactorGraphData): the data to use to initialize the variables
     """
     print("Setting rotation initial points to ground truth")
-    for pose in data.pose_variables:
-        pose_key = pose.name
-        rotation_var = rotations[pose_key]
-        true_rotation = pose.rotation_matrix
-        init_rotation_variable(model, rotation_var, true_rotation)
+    for pose_chain in data.pose_variables:
+        for pose in pose_chain:
+            pose_key = pose.name
+            rotation_var = rotations[pose_key]
+            true_rotation = pose.rotation_matrix
+            init_rotation_variable(model, rotation_var, true_rotation)
+
+
+def set_rotation_init_random_rotation(
+    model: MathematicalProgram, rotations: Dict[str, np.ndarray]
+) -> None:
+    """Initializes the rotation variables to random.
+
+    Args:
+        model (MathematicalProgram): the model to initialize the variables in
+        rotations (Dict[str, np.ndarray]): the rotation variables to initialize
+    """
+    print("Setting rotation initial points to random")
+    for pose_key in rotations:
+        rand_rot = get_random_rotation_matrix()
+        init_rotation_variable(model, rotations[pose_key], rand_rot)
 
 
 def set_translation_init_gt(
@@ -367,11 +421,12 @@ def set_translation_init_gt(
     variables.
     """
     print("Setting translation initial points to ground truth")
-    for pose in data.pose_variables:
-        pose_key = pose.name
-        translation_var = translations[pose_key]
-        true_translation = np.asarray(pose.true_position)
-        init_translation_variable(model, translation_var, true_translation)
+    for pose_chain in data.pose_variables:
+        for pose in pose_chain:
+            pose_key = pose.name
+            translation_var = translations[pose_key]
+            true_translation = np.asarray(pose.true_position)
+            init_translation_variable(model, translation_var, true_translation)
 
 
 def set_translation_init_compose(
@@ -413,6 +468,22 @@ def set_translation_init_compose(
         init_translation_variable(model, translations[to_pose_key], curr_trans)
 
 
+def set_translation_init_random(
+    model: MathematicalProgram, translations: Dict[str, np.ndarray]
+):
+    """initializes the translations to random values
+
+    Args:
+        model (MathematicalProgram): the model to initialize the variables in
+        translations (Dict[str, np.ndarray]): the translation variables to initialize
+    """
+    print("Setting translation initial points to random")
+    for pose_key in translations:
+        init_translation_variable(
+            model, translations[pose_key], get_random_vector(dim=2)
+        )
+
+
 def set_landmark_init_gt(
     model: MathematicalProgram,
     landmarks: Dict[str, np.ndarray],
@@ -429,11 +500,27 @@ def set_landmark_init_gt(
 
         # get landmark position
         landmark_key = true_landmark.name
-        gk_landmark_var = landmarks[landmark_key]
-        true_pos = true_landmark.true_position
+        landmark_var = landmarks[landmark_key]
+        true_pos = np.asarray(true_landmark.true_position)
 
         # initialize landmark to correct position
-        model.SetInitialGuess(gk_landmark_var, true_pos)
+        init_translation_variable(model, landmark_var, true_pos)
+
+
+def set_landmark_init_random(
+    model: MathematicalProgram,
+    landmarks: Dict[str, np.ndarray],
+):
+    """Initialize the landmark variables to the ground truth landmarks.
+
+    Args:
+        model (MathematicalProgram): the model to initialize the variables in
+        landmarks (Dict[str, np.ndarray]): the landmark variables to initialize
+    """
+    print("Setting landmark initial points to ground truth")
+    for landmark in landmarks.values():
+        rand_vec = get_random_vector(landmark.shape[0])
+        init_translation_variable(model, landmark, rand_vec)
 
 
 ##### Constraints #####

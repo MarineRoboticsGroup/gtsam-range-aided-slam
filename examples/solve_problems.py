@@ -69,30 +69,29 @@ def get_factor_graph_file_in_dir(path) -> str:
 
 
 def get_results_filename(
-    solver: str, use_socp_relax: bool, use_orthogonal_constraints: bool
+    solver_params: SolverParams,
 ) -> str:
     """Returns the name of the results file
 
     Args:
-        solver (str): The solver used to solve the problem
-        use_socp_relax (bool): whether the problem is solved with SOCP relaxation
-        use_orthogonal_constraints (bool): whether the problem is solved with
-            orthogonal constraints
+        solver_params (SolverParams): the solver parameters
 
     Returns:
         str: the file name giving details of the solver params
     """
-    file_name = f"{solver}_"
+    file_name = f"{solver_params.solver}_"
+
+    file_name += f"init{solver_params.init_technique}_"
 
     # add in indicator for SOCP relaxation
-    if use_socp_relax:
+    if solver_params.use_socp_relax:
         file_name += "socp"
     else:
         file_name += "nosocp"
     file_name += "_"
 
     # add in indicator for orthogonal constraints
-    if use_orthogonal_constraints:
+    if solver_params.use_orthogonal_constraint:
         file_name += "orth"
     else:
         file_name += "noorth"
@@ -111,6 +110,7 @@ if __name__ == "__main__":
         save_results=True,
         use_socp_relax=True,
         use_orthogonal_constraint=False,
+        init_technique="random",
     )
 
     # do a recursive search and then test on all of the .pickle files found
@@ -121,11 +121,7 @@ if __name__ == "__main__":
         fg_filepath = join(pickle_dir, pickle_file)
 
         # get the file name to save results to
-        results_file_name = get_results_filename(
-            solver_params.solver,
-            solver_params.use_socp_relax,
-            solver_params.use_orthogonal_constraint,
-        )
+        results_file_name = get_results_filename(solver_params)
         results_filepath = join(pickle_dir, results_file_name)
 
         print(fg_filepath)

@@ -1,14 +1,15 @@
 import numpy as np
-from os.path import expanduser, join
 from typing import List, Tuple, Dict, Union
-import matplotlib.pyplot as plt  # type: ignore
-import scipy.linalg as la  # type: ignore
-from pydrake.solvers.mathematicalprogram import MathematicalProgram, Solve  # type: ignore
+import attr
+import pickle
+import re
+
+from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ignore
 from pydrake.solvers.ipopt import IpoptSolver
 from pydrake.solvers.snopt import SnoptSolver
 from pydrake.solvers.gurobi import GurobiSolver
 from pydrake.solvers.mosek import MosekSolver
-import attr
+from factor_graph.factor_graph import FactorGraphData
 
 from ro_slam.utils.qcqp_utils import (
     pin_first_pose,
@@ -19,13 +20,22 @@ from ro_slam.utils.qcqp_utils import (
     add_odom_cost,
     set_rotation_init_gt,
     set_rotation_init_compose,
+    set_rotation_init_random_rotation,
     set_translation_init_gt,
     set_translation_init_compose,
+    set_translation_init_random,
     set_distance_init_gt,
+    set_distance_init_measured,
+    set_distance_init_random,
     set_landmark_init_gt,
+    set_landmark_init_random,
 )
-from factor_graph.factor_graph import FactorGraphData
-from ro_slam.utils.matrix_utils import get_theta_from_matrix, _check_rotation_matrix
+from ro_slam.utils.eval_utils import (
+    get_solved_values,
+    print_state,
+    save_results_to_file,
+    plot_error,
+)
 
 
 @attr.s(frozen=True)
@@ -35,79 +45,7 @@ class SolverParams:
     save_results: bool = attr.ib()
     use_socp_relax: bool = attr.ib()
     use_orthogonal_constraint: bool = attr.ib()
-
-
-def print_state(
-    result,
-    translations: Dict[str, np.ndarray],
-    rotations: Dict[str, np.ndarray],
-    pose_key: str,
-):
-    """
-    Prints the current state of the result
-
-    Args:
-        result (MathematicalProgram): the result of the solution
-        translations (List[np.ndarray]): the translations
-        rotations (List[np.ndarray]): the rotations
-        pose_key (str): the key of the pose to print
-    """
-    trans_solve = result.GetSolution(translations[pose_key]).round(decimals=2)
-    rot_solve = result.GetSolution(rotations[pose_key])
-    theta_solve = get_theta_from_matrix(rot_solve)
-
-    trans_string = np.array2string(trans_solve, precision=1, floatmode="fixed")
-
-    status = (
-        f"State {pose_key}"
-        + f" | Translation: {trans_string}"
-        + f" | Rotation: {theta_solve:.2f}"
-    )
-    print(status)
-
-
-def save_results_to_file(
-    result,
-    filepath: str,
-    translations: Dict[str, np.ndarray],
-    rotations: Dict[str, np.ndarray],
-):
-    """
-    Saves the results to a file
-
-    Args:
-        result (MathematicalProgram): the result of the solution
-        filepath (str): the path to save the results to
-        translations (Dict[str, np.ndarray]): the translations
-        rotations (Dict[str, np.ndarray]): the rotations
-    """
-    with open(filepath, "w") as f:
-        for pose_key in translations.keys():
-            trans_solve = result.GetSolution(translations[pose_key]).round(decimals=2)
-            rot_solve = result.GetSolution(rotations[pose_key])
-            theta_solve = get_theta_from_matrix(rot_solve)
-
-            trans_string = np.array2string(trans_solve, precision=1, floatmode="fixed")
-            status = (
-                f"State {pose_key}"
-                + f" | Translation: {trans_string}"
-                + f" | Rotation: {theta_solve:.2f}\n"
-            )
-            f.write(status)
-
-        f.write(f"Is optimization successful? {result.is_success()}\n")
-        f.write(f"optimal cost: {result.get_optimal_cost()}")
-
-    print(f"Results saved to: {filepath}\n")
-
-
-def check_rotations(result, rotations):
-    """
-    checks that results are valid rotations
-    """
-    for rot_key in rotations.keys():
-        rot_result = result.GetSolution(rotations[rot_key])
-        _check_rotation_matrix(rot_result)
+    init_technique: str = attr.ib()
 
 
 def get_solver(
@@ -153,6 +91,11 @@ def solve_mle_problem(
         solver_params.solver in solver_options
     ), f"Invalid solver, must be from: {solver_options}"
 
+    init_options = ["gt", "compose", "random"]
+    assert (
+        solver_params.init_technique in init_options
+    ), f"Invalid init_technique, must be from: {init_options}"
+
     if solver_params.solver in ["mosek", "gurobi"]:
         assert (
             solver_params.use_socp_relax and not solver_params.use_orthogonal_constraint
@@ -177,19 +120,21 @@ def solve_mle_problem(
     # pin first pose at origin
     pin_first_pose(model, translations["A0"], rotations["A0"])
 
-    ### Rotation Initialization
-    set_rotation_init_gt(model, rotations, data)
-    # set_rotation_init_compose(model, rotations, data)
-
-    ### Translation Initialization
-    set_translation_init_gt(model, translations, data)
-    # set_translation_init_compose(model, translations, data)
-
-    ### Distance Initialization
-    set_distance_init_gt(model, distances, data)
-
-    ### Landmark Initialization
-    set_landmark_init_gt(model, landmarks, data)
+    if solver_params.init_technique == "gt":
+        set_rotation_init_gt(model, rotations, data)
+        set_translation_init_gt(model, translations, data)
+        set_distance_init_gt(model, distances, data)
+        set_landmark_init_gt(model, landmarks, data)
+    elif solver_params.init_technique == "compose":
+        set_rotation_init_compose(model, rotations, data)
+        set_translation_init_compose(model, translations, data)
+        set_distance_init_measured(model, distances, data)
+        set_landmark_init_random(model, landmarks, data)
+    elif solver_params.init_technique == "random":
+        set_rotation_init_random_rotation(model, rotations)
+        set_translation_init_random(model, translations)
+        set_distance_init_random(model, distances)
+        set_landmark_init_random(model, landmarks)
 
     # perform optimization
     print("Solving MLE problem...")
@@ -201,7 +146,16 @@ def solve_mle_problem(
         print("Error: ", e)
         return
 
-    check_rotations(result, rotations)
+    # check_rotations(result, rotations)
+
+    solved_translations, solved_rotations, solved_landmarks = get_solved_values(
+        result, translations, rotations, landmarks
+    )
+    solved_vals = {
+        "translations": solved_translations,
+        "rotations": solved_rotations,
+        "landmarks": solved_landmarks,
+    }
 
     if solver_params.verbose:
         for pose_key in translations.keys():
@@ -211,4 +165,8 @@ def solve_mle_problem(
         print(f"optimal cost: {result.get_optimal_cost()}")
 
     if solver_params.save_results:
-        save_results_to_file(result, results_filepath, translations, rotations)
+        save_results_to_file(result, solved_vals, results_filepath)
+
+    grid_size_str = re.search(r"\d+_grid", results_filepath).group(0)  # type: ignore
+    grid_size = int(grid_size_str.split("_")[0])
+    plot_error(data, solved_vals, grid_size)
