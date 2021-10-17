@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List, Tuple, Union, Dict
+import tqdm
 
 from factor_graph.factor_graph import FactorGraphData
 from ro_slam.utils.matrix_utils import (
@@ -37,8 +38,13 @@ def add_pose_variables(
     translations: Dict[str, np.ndarray] = {}
     rotations: Dict[str, np.ndarray] = {}
 
+    num_poses = len(data.pose_variables[0])
+
+    print("Adding pose variables")
     for pose_chain in data.pose_variables:
-        for pose in pose_chain:
+        for pose_idx in tqdm.trange(num_poses):
+            pose = pose_chain[pose_idx]
+
             # add new translation variables d-dimensional vector
             pose_name = pose.name
             trans_name = f"{pose_name}_translation"
@@ -72,7 +78,10 @@ def add_landmark_variables(
         robot keyed by landmark name
     """
     landmarks: Dict[str, np.ndarray] = {}
-    for landmark in data.landmark_variables:
+    num_landmarks = len(data.landmark_variables)
+    print("Adding landmarks")
+    for landmark_idx in tqdm.trange(num_landmarks):
+        landmark = data.landmark_variables[landmark_idx]
         name = f"{landmark.name}_translation"
         landmark_var = add_translation_var(model, name, data.dimension)
         landmarks[landmark.name] = landmark_var
@@ -102,7 +111,10 @@ def add_distance_variables(
         the distances between the robot's landmarks and the landmarks.
     """
     distances = {}
-    for range_measure in data.range_measurements:
+    num_range_measures = len(data.range_measurements)
+    print("Adding distance variables")
+    for range_measure_idx in tqdm.trange(num_range_measures):
+        range_measure = data.range_measurements[range_measure_idx]
         pose_key = range_measure.pose_key
         landmark_key = range_measure.landmark_key
 
