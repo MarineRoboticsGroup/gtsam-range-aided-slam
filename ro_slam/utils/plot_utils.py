@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from factor_graph.factor_graph import FactorGraphData
 from factor_graph.variables import PoseVariable, LandmarkVariable
-from factor_graph.utils.circle_utils import Arc, Circle, CircleIntersection
+from ro_slam.utils.circle_utils import Arc, Circle, CircleIntersection, Point
+
+colors = ["red", "green", "blue", "orange", "purple", "black", "cyan"]
 
 
 def plot_error(
@@ -39,6 +41,11 @@ def plot_error(
         pose_chain_len = len(gt_data.pose_variables[0])
         num_landmarks = len(gt_data.landmark_variables)
 
+        range_measures = gt_data.range_measurements
+        range_measure_dict = {
+            measure.association: measure.dist for measure in range_measures
+        }
+
         # make sure all pose chains same length
         assert all(len(x) == pose_chain_len for x in gt_data.pose_variables)
         assert num_pose_chains > 0
@@ -49,9 +56,10 @@ def plot_error(
 
         pose_var_plot_obj: List[patches.FancyArrow] = []
         pose_sol_plot_obj: List[patches.FancyArrow] = []
-        dist_circles: List[List[Circle]] = [[] for _ in range(num_landmarks)]
-        dist_arcs: List[List[Arc]] = [[] for _ in range(num_landmarks)]
         dist_arcs_plot_obj: List[List[patches.Arc]] = [[] for _ in range(num_landmarks)]
+        range_circles: List[CircleIntersection] = [
+            CircleIntersection() for _ in range(num_landmarks)
+        ]
         for pose_idx in range(pose_chain_len):
             for pose_chain_idx in range(num_pose_chains):
                 pose = gt_data.pose_variables[pose_chain_idx][pose_idx]
@@ -68,67 +76,26 @@ def plot_error(
                 for landmark_idx, landmark in enumerate(gt_data.landmark_variables):
                     soln_pose_center = solution_data["translations"][pose.name]
                     soln_landmark_center = solution_data["landmarks"][landmark.name]
-                    arc_radius = np.linalg.norm(soln_pose_center - soln_landmark_center)
-                    dist_circle = Circle(
-                        soln_pose_center[0], soln_pose_center[1], arc_radius
+                    range_key = (pose.name, landmark.name)
+                    if range_key in range_measure_dict:
+                        arc_radius = range_measure_dict[range_key]
+                        dist_circle = Circle(
+                            Point(soln_pose_center[0], soln_pose_center[1]), arc_radius
+                        )
+                        range_circles[landmark_idx].add_circle(dist_circle)
+                    range_circles[landmark_idx].draw_intersection(
+                        ax, color=colors[landmark_idx]
                     )
-                    if pose_idx == 0:
-                        dist_circles[landmark_idx].append(dist_circle)
-                        new_arc = Arc(
-                            (dist_circle.x, dist_circle.y),
-                            dist_circle.radius,
-                            (0, 2 * np.pi),
-                        )
-                        dist_arcs[landmark_idx].append(new_arc)
-                        draw_arc_patch(
-                            new_arc,
-                            ax,
-                        )
-                    else:
-                        assert len(dist_circles[landmark_idx]) == len(
-                            dist_arcs[landmark_idx]
-                        )
-                        exist_circ_idx = 0
-                        while exist_circ_idx < len(dist_circles[landmark_idx]):
-
-                            # get the previously computed information
-                            existing_circle = dist_circles[landmark_idx][exist_circ_idx]
-                            existing_arc = dist_arcs[landmark_idx][exist_circ_idx]
-
-                            # find the arcs defined by the intersection of the new circle and
-                            # existing circle
-                            exist_arc_intersect = (
-                                existing_circle.get_circle_intersection_arc(dist_circle)
-                            )
-
-                            # if there is no intersection, remove the existing circle and arc
-                            if exist_arc_intersect is None:
-                                dist_circles.pop(exist_circ_idx)
-                                dist_arcs.pop(exist_circ_idx)
-                                continue
-
-                            new_arc_intersect = dist_circle.get_circle_intersection_arc(
-                                existing_circle
-                            )
-
-                            # find the intersection of the previously computed
-                            # arc and the new arc
-                            reduced_existing_arc = (
-                                existing_arc.get_arc_intersection_arc(
-                                    exist_arc_intersect
-                                )
-                            )
-                            if reduced_existing_arc is None:
-                                dist_circles.pop(exist_circ_idx)
-                                dist_arcs.pop(exist_circ_idx)
-
-                            exist_circ_idx += 1
+                    range_circles[landmark_idx].draw_circles(
+                        ax, color=colors[landmark_idx]
+                    )
 
                 # draw groundtruth solution
                 var_arrow = draw_pose_variable(ax, pose)
                 pose_var_plot_obj.append(var_arrow)
 
             plt.pause(0.1)
+            ax.patches = []
 
             if pose_idx > 10:
                 # ax.remove(pose_sol_plot_obj[0])

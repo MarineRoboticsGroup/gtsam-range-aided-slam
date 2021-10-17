@@ -619,7 +619,7 @@ class CircleIntersection:
             ax (plt.Axes): the axes to draw the circles on
             color (str, optional): the color of the circles. Defaults to "red".
         """
-        for circle in self.circles:
+        for circle in self.circles[-3:]:
             circle.draw_circle_patch(ax, color=color)
 
     def draw_intersection(self, ax: plt.Axes, color: str = "blue") -> None:
@@ -631,6 +631,8 @@ class CircleIntersection:
             color (str, optional): the color of the intersection. Defaults to
             "blue".
         """
+        if self.intersect_is_null:
+            return
 
         fill_points: Set[Point] = set()
         for arc in self.intersection_arcs:
