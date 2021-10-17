@@ -124,13 +124,15 @@ if __name__ == "__main__":
         results_file_name = get_results_filename(solver_params)
         results_filepath = join(pickle_dir, results_file_name)
 
-        print(fg_filepath)
+        if "100_timesteps" not in fg_filepath:
+            continue
         if fg_filepath.endswith(".pickle"):
             fg = parse_pickle_file(fg_filepath)
         elif fg_filepath.endswith(".fg"):
             fg = parse_efg_file(fg_filepath)
         else:
             raise ValueError(f"Unknown file type: {fg_filepath}")
+        print(f"Loaded data: {fg_filepath}")
 
         solve_mle_problem(fg, solver_params, results_filepath)
     print()

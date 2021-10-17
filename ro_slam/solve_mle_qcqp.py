@@ -3,6 +3,7 @@ from typing import List, Tuple, Dict, Union
 import attr
 import pickle
 import re
+import time
 
 from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ignore
 from pydrake.solvers.ipopt import IpoptSolver
@@ -34,6 +35,8 @@ from ro_slam.utils.eval_utils import (
     get_solved_values,
     print_state,
     save_results_to_file,
+)
+from ro_slam.utils.plot_utils import (
     plot_error,
 )
 
@@ -107,12 +110,15 @@ def solve_mle_problem(
     translations, rotations = add_pose_variables(
         model, data, solver_params.use_orthogonal_constraint
     )
+    print("Added pose variables")
     assert (translations.keys()) == (rotations.keys())
 
     landmarks = add_landmark_variables(model, data)
+    print("Added landmark variables")
     distances = add_distance_variables(
         model, data, translations, landmarks, solver_params.use_socp_relax
     )
+    print("Added distance variables")
 
     add_distances_cost(model, distances, data)
     add_odom_cost(model, translations, rotations, data)
@@ -139,12 +145,15 @@ def solve_mle_problem(
     # perform optimization
     print("Solving MLE problem...")
 
+    t_start = time.time()
     try:
         solver = get_solver(solver_params.solver)
         result = solver.Solve(model)
     except Exception as e:
         print("Error: ", e)
         return
+    t_end = time.time()
+    print(f"Solved in {t_end - t_start} seconds")
 
     # check_rotations(result, rotations)
 
