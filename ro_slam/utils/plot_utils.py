@@ -86,9 +86,9 @@ def plot_error(
                     range_circles[landmark_idx].draw_intersection(
                         ax, color=colors[landmark_idx]
                     )
-                    range_circles[landmark_idx].draw_circles(
-                        ax, color=colors[landmark_idx]
-                    )
+                    # range_circles[landmark_idx].draw_circles(
+                    #     ax, color=colors[landmark_idx]
+                    # )
 
                 # draw groundtruth solution
                 var_arrow = draw_pose_variable(ax, pose)

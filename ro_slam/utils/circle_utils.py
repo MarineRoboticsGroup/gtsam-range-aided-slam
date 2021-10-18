@@ -238,6 +238,8 @@ class Arc:
         assert self.arc_length_radians <= 2 * np.pi
         assert other.arc_length_radians <= 2 * np.pi
 
+        start_len = self.arc_length_radians
+
         # if thetas is None this arc is already empty
         if self.is_empty:
             return
@@ -261,6 +263,9 @@ class Arc:
             self.set_empty()
         else:
             self.set_thetas(intersection)
+
+        new_len = self.arc_length_radians
+        assert new_len <= start_len, f"New arc length must be <= old length"
 
     def draw_arc_patch(
         self,
@@ -414,6 +419,7 @@ class Circle:
 
         pt_thetas = [pt.theta for pt in centered_pts]
         pt_thetas.sort()
+        assert pt_thetas[0] < pt_thetas[1]
         return (float(pt_thetas[0]), float(pt_thetas[1]))
 
     def get_circle_intersection_arc(self, other: "Circle") -> Optional[Arc]:
@@ -432,18 +438,21 @@ class Circle:
         # circle makes up the boundary
         other_is_completely_inside_self = self.completely_contains(other)
         if other_is_completely_inside_self:
+            print("other is completely inside self")
             return None
 
         # if this circle is completely inside the other circle then the entire
         # circle makes up the boundary
         self_is_completely_inside_other = other.completely_contains(self)
         if self_is_completely_inside_other:
+            print("self is completely inside other")
             return Arc(self.center, self.radius, (0.0, 2 * np.pi))
 
         # if there is no intersection of the circles and neither is completely
         # inside the other then return None
         intersect_is_null = circles_have_no_overlap(self, other)
         if intersect_is_null:
+            print("Circles have no intersection")
             return None
 
         # we've now checked the reasons why there might be no intersection, so
@@ -453,7 +462,8 @@ class Circle:
             intersect_point_thetas is not None
         ), "Intersection points should not be None - have already weeded out possible causes of that"
 
-        # these are the angles to the intersection points - arbitrarily numbered
+        # these are the angles to the intersection points - sorted least to
+        # greatest
         angle_to_pt_1, angle_to_pt_2 = intersect_point_thetas
 
         # make two arc objects and we will choose between the larger or smaller
@@ -464,6 +474,8 @@ class Circle:
         )
         larger_arc = max(arc1, arc2, key=lambda arc: arc.arc_length_radians)
         smaller_arc = min(arc1, arc2, key=lambda arc: arc.arc_length_radians)
+        print(f"Larger arc: {larger_arc}")
+        print(f"Smaller arc: {smaller_arc}")
 
         # from here based on the relative angles between the centers of the
         # circles and the intersection points, we can determine whether to use
@@ -583,10 +595,9 @@ class CircleIntersection:
                 self.intersection_arcs.append(empty_arc)
                 return
 
-            # if the existing arc is already empty then this existing circle has
-            # no impact on the intersection
-            if existing_arc.is_empty:
-                continue
+            # Note: if the existing arc is already empty then this existing
+            # circle has no impact on that arc but it can still impact this new
+            # arc (this was causing a bug for me!)
 
             # for every circle this circle is completely inside of we can
             # eliminate that circle and its arc
