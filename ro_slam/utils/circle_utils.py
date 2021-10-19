@@ -474,8 +474,6 @@ class Circle:
         )
         larger_arc = max(arc1, arc2, key=lambda arc: arc.arc_length_radians)
         smaller_arc = min(arc1, arc2, key=lambda arc: arc.arc_length_radians)
-        print(f"Larger arc: {larger_arc}")
-        print(f"Smaller arc: {smaller_arc}")
 
         # from here based on the relative angles between the centers of the
         # circles and the intersection points, we can determine whether to use

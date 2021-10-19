@@ -98,13 +98,13 @@ def _check_rotation_matrix(R: np.ndarray, assert_test: bool = False):
     d = R.shape[0]
     is_orthogonal = np.allclose(R @ R.T, np.eye(d), rtol=1e-3, atol=1e-3)
     if not is_orthogonal:
-        print(f"R not orthogonal: {R @ R.T}")
+        # print(f"R not orthogonal: {R @ R.T}")
         if assert_test:
             raise ValueError(f"R is not orthogonal {R @ R.T}")
 
     has_correct_det = abs(np.linalg.det(R) - 1) < 1e-3
     if not has_correct_det:
-        print(f"R det != 1: {np.linalg.det(R)}")
+        # print(f"R det != 1: {np.linalg.det(R)}")
         if assert_test:
             raise ValueError(f"R det incorrect {np.linalg.det(R)}")
 

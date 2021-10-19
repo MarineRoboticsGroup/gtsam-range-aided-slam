@@ -70,6 +70,7 @@ def get_factor_graph_file_in_dir(path) -> str:
 
 def get_results_filename(
     solver_params: SolverParams,
+    filetype: str = "pickle",
 ) -> str:
     """Returns the name of the results file
 
@@ -95,40 +96,48 @@ def get_results_filename(
         file_name += "orth"
     else:
         file_name += "noorth"
-    file_name += "_"
+    file_name += "_results."
 
     # add in results.txt and return
-    file_name += "results.txt"
+    file_name += filetype
     return file_name
 
 
 if __name__ == "__main__":
-    base_dir = expanduser(join("~", "data", "example_factor_graphs"))
+    base_dir = expanduser(join("~", "data", "manhattan"))
     solver_params = SolverParams(
         solver="gurobi",
-        verbose=False,
+        verbose=True,
         save_results=True,
         use_socp_relax=True,
         use_orthogonal_constraint=False,
-        init_technique="random",
+        init_technique="none",
+        solve_nonconvex=True,
     )
+    results_filetype = "pickle"
 
     # do a recursive search and then test on all of the .pickle files found
     pickle_files = recursively_find_pickle_files(base_dir)
     for pickle_dir, pickle_file in pickle_files:
 
+        if not pickle_file == "factor_graph.pickle":
+            continue
+
         # get the factor graph filepath
         fg_filepath = join(pickle_dir, pickle_file)
 
         # get the file name to save results to
-        results_file_name = get_results_filename(solver_params)
+        results_file_name = get_results_filename(solver_params, results_filetype)
         results_filepath = join(pickle_dir, results_file_name)
 
-        print(fg_filepath)
-        if "100_timesteps" not in fg_filepath:
-            continue
-        if "1_beacons" not in fg_filepath:
-            continue
+        # if "100_timesteps" not in fg_filepath:
+        #     continue
+        # if "3_beacons" not in fg_filepath:
+        #     continue
+        # if "50_loop"not  in fg_filepath:
+        #     continue
+        # if "100_loop"not  in fg_filepath:
+        #     continue
 
         if fg_filepath.endswith(".pickle"):
             fg = parse_pickle_file(fg_filepath)

@@ -7,6 +7,7 @@ from ro_slam.utils.matrix_utils import (
     _check_square,
     get_random_vector,
     get_random_rotation_matrix,
+    get_rotation_matrix_from_theta,
 )
 
 from pydrake.solvers.mathematicalprogram import MathematicalProgram, QuadraticConstraint  # type: ignore
@@ -277,6 +278,56 @@ def add_odom_cost(
             )
 
 
+def add_loop_closure_cost(
+    model: MathematicalProgram,
+    translations: Dict[str, np.ndarray],
+    rotations: Dict[str, np.ndarray],
+    data: FactorGraphData,
+):
+    """Add the cost associated with the loop closure measurements as:
+
+        translation component of cost
+        k_ij * ||t_i - t_j - R_i @ t_ij^meas||^2
+
+        rotation component of cost
+        tau_ij * || R_j - (R_i @ R_ij^\top) ||_\frob^2
+
+    Args:
+        model (MathematicalProgram): the model to add the cost to
+        translations (Dict[str, np.ndarray]): the variables representing translations
+        rotations (Dict[str, np.ndarray]): the variables representing rotations
+        data (FactorGraphData): the factor graph data
+
+    """
+    for loop_measure in data.loop_closure_measurements:
+
+        # the indices of the related poses in the odometry measurement
+        i_key = loop_measure.base_pose
+        j_key = loop_measure.to_pose
+
+        # get the translation and rotation variables
+        t_i = translations[i_key]
+        t_j = translations[j_key]
+        R_i = rotations[i_key]
+        R_j = rotations[j_key]
+
+        # translation component of cost
+        # k_ij * ||t_i - t_j - R_i @ t_ij^meas||^2
+        trans_weight = loop_measure.translation_weight
+        trans_measure = loop_measure.translation_vector
+        term = t_j - t_i - (R_i @ trans_measure)
+        model.AddQuadraticCost(trans_weight * (term ** 2).sum(), is_convex=True)
+
+        # rotation component of cost
+        # tau_ij * || R_j - (R_i @ R_ij^\top) ||_\frob
+        rot_weight = loop_measure.rotation_weight
+        rot_measure = loop_measure.rotation_matrix
+        diff_rot_matrix = R_j - (R_i @ rot_measure)
+        model.AddQuadraticCost(
+            rot_weight * (diff_rot_matrix ** 2).sum(), is_convex=True
+        )
+
+
 ##### Initialization strategies #####
 
 
@@ -533,6 +584,78 @@ def set_landmark_init_random(
     for landmark in landmarks.values():
         rand_vec = get_random_vector(landmark.shape[0])
         init_translation_variable(model, landmark, rand_vec)
+
+
+def set_rotation_init_custom(
+    model: MathematicalProgram,
+    rotations: Dict[str, np.ndarray],
+    custom_rotations: Dict[str, np.ndarray],
+) -> None:
+    """[summary]
+
+    Args:
+        model (MathematicalProgram): [description]
+        rotations (Dict[str, np.ndarray]): [description]
+        custom_rotations (Dict[str, np.ndarray]): [description]
+    """
+    print("Setting rotation initial points to custom")
+    for pose_key in rotations:
+        custom_rot_mat = get_rotation_matrix_from_theta(custom_rotations[pose_key])
+        init_rotation_variable(model, rotations[pose_key], custom_rot_mat)
+
+
+def set_translation_init_custom(
+    model: MathematicalProgram,
+    translations: Dict[str, np.ndarray],
+    custom_translations: Dict[str, np.ndarray],
+) -> None:
+    """[summary]
+
+    Args:
+        model (MathematicalProgram): [description]
+        translations (Dict[str, np.ndarray]): [description]
+        custom_translations (Dict[str, np.ndarray]): [description]
+    """
+    print("Setting translation initial points to custom")
+    for pose_key in translations:
+        init_translation_variable(
+            model, translations[pose_key], custom_translations[pose_key]
+        )
+
+
+def set_landmark_init_custom(
+    model: MathematicalProgram,
+    landmarks: Dict[str, np.ndarray],
+    custom_landmarks: Dict[str, np.ndarray],
+) -> None:
+    """[summary]
+
+    Args:
+        model (MathematicalProgram): [description]
+        landmarks (Dict[str, np.ndarray]): [description]
+        custom_landmarks (Dict[str, np.ndarray]): [description]
+    """
+    print("Setting landmark initial points to custom")
+    for landmark_key in landmarks.keys():
+        landmark = landmarks[landmark_key]
+        init_translation_variable(model, landmark, custom_landmarks[landmark_key])
+
+
+def set_distance_init_custom(
+    model: MathematicalProgram,
+    distances: Dict[str, np.ndarray],
+    custom_distances: Dict[str, np.ndarray],
+) -> None:
+    """[summary]
+
+    Args:
+        model (MathematicalProgram): [description]
+        distances (Dict[str, np.ndarray]): [description]
+        custom_distances (Dict[str, np.ndarray]): [description]
+    """
+    print("Setting distance initial points to custom")
+    for dist_key in distances.keys():
+        model.SetInitialGuess(distances[dist_key], custom_distances[dist_key])
 
 
 ##### Constraints #####

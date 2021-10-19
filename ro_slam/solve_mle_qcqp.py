@@ -1,15 +1,9 @@
-import numpy as np
-from typing import List, Tuple, Dict, Union
+from typing import Optional
 import attr
-import pickle
 import re
 import time
 
 from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ignore
-from pydrake.solvers.ipopt import IpoptSolver
-from pydrake.solvers.snopt import SnoptSolver
-from pydrake.solvers.gurobi import GurobiSolver
-from pydrake.solvers.mosek import MosekSolver
 from factor_graph.factor_graph import FactorGraphData
 
 from ro_slam.utils.qcqp_utils import (
@@ -19,54 +13,36 @@ from ro_slam.utils.qcqp_utils import (
     add_distance_variables,
     add_distances_cost,
     add_odom_cost,
+    add_loop_closure_cost,
     set_rotation_init_gt,
     set_rotation_init_compose,
     set_rotation_init_random_rotation,
+    set_rotation_init_custom,
     set_translation_init_gt,
     set_translation_init_compose,
     set_translation_init_random,
+    set_translation_init_custom,
     set_distance_init_gt,
     set_distance_init_measured,
     set_distance_init_random,
+    set_distance_init_custom,
     set_landmark_init_gt,
     set_landmark_init_random,
-)
-from ro_slam.utils.eval_utils import (
-    get_solved_values,
-    print_state,
-    save_results_to_file,
+    set_landmark_init_custom,
 )
 from ro_slam.utils.plot_utils import (
     plot_error,
+    plot_error_with_custom_init,
 )
-
-
-@attr.s(frozen=True)
-class SolverParams:
-    solver: str = attr.ib()
-    verbose: bool = attr.ib()
-    save_results: bool = attr.ib()
-    use_socp_relax: bool = attr.ib()
-    use_orthogonal_constraint: bool = attr.ib()
-    init_technique: str = attr.ib()
-
-
-def get_solver(
-    solver_name: str,
-) -> Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver]:
-    """
-    Returns the solver for the given name
-    """
-    if solver_name == "ipopt":
-        return IpoptSolver()
-    elif solver_name == "snopt":
-        return SnoptSolver()
-    elif solver_name == "gurobi":
-        return GurobiSolver()
-    elif solver_name == "mosek":
-        return MosekSolver()
-    else:
-        raise ValueError(f"Unknown solver: {solver_name}")
+from ro_slam.utils.solver_utils import (
+    SolverParams,
+    SolverResults,
+    get_solved_values,
+    save_results_to_file,
+    load_custom_init_file,
+    get_solver,
+    set_solver_verbose,
+)
 
 
 def solve_mle_problem(
@@ -94,7 +70,7 @@ def solve_mle_problem(
         solver_params.solver in solver_options
     ), f"Invalid solver, must be from: {solver_options}"
 
-    init_options = ["gt", "compose", "random"]
+    init_options = ["gt", "compose", "random", "none"]
     assert (
         solver_params.init_technique in init_options
     ), f"Invalid init_technique, must be from: {init_options}"
@@ -122,6 +98,7 @@ def solve_mle_problem(
 
     add_distances_cost(model, distances, data)
     add_odom_cost(model, translations, rotations, data)
+    add_loop_closure_cost(model, translations, rotations, data)
 
     # pin first pose at origin
     pin_first_pose(model, translations["A0"], rotations["A0"])
@@ -141,13 +118,26 @@ def solve_mle_problem(
         set_translation_init_random(model, translations)
         set_distance_init_random(model, distances)
         set_landmark_init_random(model, landmarks)
+    elif solver_params.init_technique == "custom":
+        custom_vals = load_custom_init_file(solver_params.custom_init_file)
+        init_rotations = custom_vals["rotations"]
+        init_translations = custom_vals["translations"]
+        init_landmarks = custom_vals["landmarks"]
+        init_distances = custom_vals["distances"]
+        set_rotation_init_custom(model, rotations, init_rotations)
+        set_translation_init_custom(model, translations, init_translations)
+        set_landmark_init_custom(model, landmarks, init_landmarks)
+        set_distance_init_custom(model, distances, init_distances)
 
     # perform optimization
-    print("Solving MLE problem...")
+    print("Starting solver...")
 
     t_start = time.time()
     try:
         solver = get_solver(solver_params.solver)
+        if solver_params.verbose:
+            set_solver_verbose(model, solver)
+
         result = solver.Solve(model)
     except Exception as e:
         print("Error: ", e)
@@ -157,25 +147,18 @@ def solve_mle_problem(
 
     # check_rotations(result, rotations)
 
-    solved_translations, solved_rotations, solved_landmarks = get_solved_values(
-        result, translations, rotations, landmarks
+    solution_vals = get_solved_values(
+        result, translations, rotations, landmarks, distances
     )
-    solved_vals = {
-        "translations": solved_translations,
-        "rotations": solved_rotations,
-        "landmarks": solved_landmarks,
-    }
-
-    if solver_params.verbose:
-        for pose_key in translations.keys():
-            print_state(result, translations, rotations, pose_key)
-
-        print(f"Is optimization successful? {result.is_success()}")
-        print(f"optimal cost: {result.get_optimal_cost()}")
 
     if solver_params.save_results:
-        save_results_to_file(result, solved_vals, results_filepath)
+        save_results_to_file(result, solution_vals, results_filepath)
 
     grid_size_str = re.search(r"\d+_grid", results_filepath).group(0)  # type: ignore
     grid_size = int(grid_size_str.split("_")[0])
-    plot_error(data, solved_vals, grid_size)
+
+    if solver_params.init_technique == "custom":
+        plot_error_with_custom_init(data, solution_vals, custom_vals, grid_size)
+    else:
+        # do not solve local so only print the relaxed solution
+        plot_error(data, solution_vals, grid_size)
