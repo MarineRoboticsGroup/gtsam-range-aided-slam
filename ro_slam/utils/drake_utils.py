@@ -1,16 +1,24 @@
 import numpy as np
 from typing import List, Tuple, Union, Dict
-import tqdm
+import tqdm  # type: ignore
 
-from factor_graph.factor_graph import FactorGraphData
+from py_factor_graph.factor_graph import FactorGraphData
 from ro_slam.utils.matrix_utils import (
     _check_square,
     get_random_vector,
     get_random_rotation_matrix,
     get_rotation_matrix_from_theta,
+    round_to_special_orthogonal,
+    make_transformation_matrix,
 )
+from ro_slam.utils.solver_utils import SolverResults, VariableValues
 
 from pydrake.solvers.mathematicalprogram import MathematicalProgram, QuadraticConstraint  # type: ignore
+from pydrake.solvers.mathematicalprogram import MathematicalProgramResult as DrakeResult  # type: ignore
+from pydrake.solvers.ipopt import IpoptSolver  # type: ignore
+from pydrake.solvers.snopt import SnoptSolver  # type: ignore
+from pydrake.solvers.gurobi import GurobiSolver  # type: ignore
+from pydrake.solvers.mosek import MosekSolver  # type: ignore
 from pydrake.solvers.mixed_integer_rotation_constraint import (  # type: ignore
     MixedIntegerRotationConstraintGenerator as MIRCGenerator,
 )
@@ -95,7 +103,7 @@ def add_distance_variables(
     translations: Dict[str, np.ndarray],
     landmarks: Dict[str, np.ndarray],
     socp_relax: bool,
-) -> Dict[Tuple[int, int], np.ndarray]:
+) -> Dict[Tuple[str, str], np.ndarray]:
     """
     Adds variables to the model that represent the distances between the robot's
     landmarks and the landmarks.
@@ -108,7 +116,7 @@ def add_distance_variables(
         socp_relax (bool): Whether to relax the distance constraint to SOCP
 
     Returns:
-        Dict[Tuple[int, int], np.ndarray]: The dict of variables representing
+        Dict[Tuple[str, str], np.ndarray]: The dict of variables representing
         the distances between the robot's landmarks and the landmarks.
     """
     distances = {}
@@ -201,7 +209,7 @@ def add_translation_var(model: MathematicalProgram, name: str, dim: int) -> np.n
 
 def add_distances_cost(
     model: MathematicalProgram,
-    distances: Dict[Tuple[int, int], np.ndarray],
+    distances: Dict[Tuple[str, str], np.ndarray],
     data: FactorGraphData,
 ):
     """Adds in the cost due to the distances as:
@@ -209,7 +217,7 @@ def add_distances_cost(
 
     Args:
         model (MathematicalProgram): the model to add the cost to
-        distances (Dict[Tuple[int, int], np.ndarray]): [description]
+        distances (Dict[Tuple[str, str], np.ndarray]): [description]
         data (FactorGraphData): [description]
 
     """
@@ -333,13 +341,13 @@ def add_loop_closure_cost(
 
 def set_distance_init_gt(
     model: MathematicalProgram,
-    distances: Dict[Tuple[int, int], np.ndarray],
+    distances: Dict[Tuple[str, str], np.ndarray],
     data: FactorGraphData,
 ):
     """Initialize the distance variables to the ground truth distances.
 
     Args:
-        distances (Dict[Tuple[int, int], np.ndarray]): [description]
+        distances (Dict[Tuple[str, str], np.ndarray]): [description]
         data (FactorGraphData): [description]
     """
     print("Setting distance initial points to measured distance")
@@ -352,14 +360,14 @@ def set_distance_init_gt(
 
 def set_distance_init_measured(
     model: MathematicalProgram,
-    distances: Dict[Tuple[int, int], np.ndarray],
+    distances: Dict[Tuple[str, str], np.ndarray],
     data: FactorGraphData,
 ):
     """Initialize the distance variables to the measured distances.
 
     Args:
         model (MathematicalProgram): the optimization model
-        distances (Dict[Tuple[int, int], np.ndarray]): the distance variables
+        distances (Dict[Tuple[str, str], np.ndarray]): the distance variables
         data (FactorGraphData): the factor graph data
     """
     print("Setting distance initial points to measured distance")
@@ -372,13 +380,13 @@ def set_distance_init_measured(
 
 def set_distance_init_random(
     model: MathematicalProgram,
-    distances: Dict[Tuple[int, int], np.ndarray],
+    distances: Dict[Tuple[str, str], np.ndarray],
 ):
     """random initial guess for the distance variables.
 
     Args:
         model (MathematicalProgram): the optimization model
-        distances (Dict[Tuple[int, int], np.ndarray]): the distance variables
+        distances (Dict[Tuple[str, str], np.ndarray]): the distance variables
     """
     print("Setting distance initial points to random")
     for dist_key in distances:
@@ -413,7 +421,7 @@ def init_translation_variable(
 
 
 def set_rotation_init_compose(
-    model: MathematicalProgram, rotations: List[np.ndarray], data: FactorGraphData
+    model: MathematicalProgram, rotations: Dict[str, np.ndarray], data: FactorGraphData
 ) -> None:
     """initializes the rotations by composing the rotations along the odometry chain
 
@@ -423,19 +431,19 @@ def set_rotation_init_compose(
     """
     print("Setting rotation initial points by pose composition")
 
-    # initialize the first rotation to the identity matrix
-    curr_pose = np.eye(data.dimension)
-    init_rotation_variable(model, rotations[0], curr_pose)
-
     # iterate over measurements and init the rotations
-    for measure_idx, odom_measure in enumerate(data.odom_measurements):
+    for odom_chain in data.odom_measurements:
 
-        # update the current pose
-        curr_pose = curr_pose @ odom_measure.rotation_matrix
+        # initialize the first rotation to the identity matrix
+        curr_pose = np.eye(data.dimension)
+        first_pose_name = odom_chain[0].base_pose
+        init_rotation_variable(model, rotations[first_pose_name], curr_pose)
 
-        # initialize the rotation variables
-        cur_gk_rot_variable = rotations[measure_idx + 1]
-        init_rotation_variable(model, cur_gk_rot_variable, curr_pose)
+        for odom_measure in odom_chain:
+
+            # update the rotation and initialize the next rotation
+            curr_pose = odom_measure.rotation @ curr_pose
+            init_rotation_variable(model, rotations[odom_measure.to_pose], curr_pose)
 
 
 def set_rotation_init_gt(
@@ -460,7 +468,7 @@ def set_rotation_init_gt(
             init_rotation_variable(model, rotation_var, true_rotation)
 
 
-def set_rotation_init_random_rotation(
+def set_rotation_init_random(
     model: MathematicalProgram, rotations: Dict[str, np.ndarray]
 ) -> None:
     """Initializes the rotation variables to random.
@@ -600,7 +608,8 @@ def set_rotation_init_custom(
     """
     print("Setting rotation initial points to custom")
     for pose_key in rotations:
-        custom_rot_mat = get_rotation_matrix_from_theta(custom_rotations[pose_key])
+        rot = float(custom_rotations[pose_key])
+        custom_rot_mat = get_rotation_matrix_from_theta(rot)
         init_rotation_variable(model, rotations[pose_key], custom_rot_mat)
 
 
@@ -641,10 +650,11 @@ def set_landmark_init_custom(
         init_translation_variable(model, landmark, custom_landmarks[landmark_key])
 
 
-def set_distance_init_custom(
+def set_distance_init_valid(
     model: MathematicalProgram,
-    distances: Dict[str, np.ndarray],
-    custom_distances: Dict[str, np.ndarray],
+    distances: Dict[Tuple[str, str], np.ndarray],
+    custom_translations: Dict[str, np.ndarray],
+    custom_landmarks: Dict[str, np.ndarray],
 ) -> None:
     """[summary]
 
@@ -653,9 +663,16 @@ def set_distance_init_custom(
         distances (Dict[str, np.ndarray]): [description]
         custom_distances (Dict[str, np.ndarray]): [description]
     """
-    print("Setting distance initial points to custom")
+    print("Setting distance initial points to valid based on poses and landmarks")
     for dist_key in distances.keys():
-        model.SetInitialGuess(distances[dist_key], custom_distances[dist_key])
+        pose_trans = custom_translations[dist_key[0]]
+        landmark = custom_landmarks[dist_key[1]]
+        assert pose_trans.shape == landmark.shape
+
+        dx = pose_trans[0] - landmark[0]
+        dy = pose_trans[1] - landmark[1]
+        dist = np.asarray([(dx ** 2 + dy ** 2) ** (1 / 2)])
+        model.SetInitialGuess(distances[dist_key], dist)
 
 
 ##### Constraints #####
@@ -792,3 +809,98 @@ def add_drake_distance_equality_constraint(
         quad_constraint,
         vars=np.asarray([*trans.flatten(), *land.flatten(), dist[0]]).flatten(),
     )
+
+
+##### Misc
+
+
+def get_solved_drake_values(
+    result: DrakeResult,
+    time: float,
+    translations: Dict[str, np.ndarray],
+    rotations: Dict[str, np.ndarray],
+    landmarks: Dict[str, np.ndarray],
+    distances: Dict[Tuple[str, str], np.ndarray],
+) -> SolverResults:
+    """
+    Returns the solved values from the result
+
+    Args:
+        result (Drake Result Object): the result of the solution
+        translations (Dict[str, np.ndarray]): the translation variables
+        rotations (Dict[str, np.ndarray]): the rotation variables
+        landmarks (Dict[str, np.ndarray]): the landmark variables
+
+    Returns:
+        Dict[str, np.ndarray]: the solved translations
+        Dict[str, np.ndarray]: the solved rotations
+        Dict[str, np.ndarray]: the solved landmarks
+        Dict[str, np.ndarray]: the solved distances
+    """
+    solved_translations = {
+        key: result.GetSolution(translations[key]) for key in translations.keys()
+    }
+    solved_rotations = {
+        key: np.asarray(round_to_special_orthogonal(result.GetSolution(rotations[key])))
+        for key in rotations.keys()
+    }
+    solved_poses = {
+        key: make_transformation_matrix(solved_rotations[key], solved_translations[key])
+        for key in translations.keys()
+    }
+    solved_landmarks = {
+        key: result.GetSolution(landmarks[key]) for key in landmarks.keys()
+    }
+    solved_distances = {
+        key: result.GetSolution(distances[key]) for key in distances.keys()
+    }
+
+    return SolverResults(
+        VariableValues(
+            poses=solved_poses,
+            landmarks=solved_landmarks,
+            distances=solved_distances,
+        ),
+        total_time=time,
+        solved=result.is_success(),
+    )
+
+
+def get_drake_solver(
+    solver_name: str,
+) -> Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver]:
+    """
+    Returns the solver for the given name
+    """
+    if solver_name == "ipopt":
+        return IpoptSolver()
+    elif solver_name == "snopt":
+        return SnoptSolver()
+    elif solver_name == "gurobi":
+        return GurobiSolver()
+    elif solver_name == "mosek":
+        return MosekSolver()
+    else:
+        raise ValueError(f"Unknown solver: {solver_name}")
+
+
+def set_drake_solver_verbose(
+    model: MathematicalProgram,
+    solver: Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver],
+):
+    """Sets the given solver to verbose output
+
+    Args:
+        solver (Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver]): [description]
+    """
+    if isinstance(solver, IpoptSolver):
+        model.SetSolverOption(solver.solver_id(), "print_level", 5)
+    elif isinstance(solver, SnoptSolver):
+        print("SnoptSolver verbose logging not implemented")
+    elif isinstance(solver, GurobiSolver):
+        model.SetSolverOption(solver.solver_id(), "OutputFlag", True)
+        model.SetSolverOption(solver.solver_id(), "LogToConsole", True)
+    elif isinstance(solver, MosekSolver):
+        solver.set_stream_logging(True, "/home/alan/mosek_log.out")
+    else:
+        raise ValueError("Unknown solver")

@@ -21,7 +21,7 @@ def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
     return R_so
 
 
-def get_theta_from_matrix_so_projection(mat: np.ndarray) -> float:
+def get_theta_from_rotation_matrix_so_projection(mat: np.ndarray) -> float:
     """
     Returns theta from the projection of the matrix M onto the special
     orthogonal group
@@ -34,10 +34,10 @@ def get_theta_from_matrix_so_projection(mat: np.ndarray) -> float:
 
     """
     R_so = round_to_special_orthogonal(mat)
-    return get_theta_from_matrix(R_so)
+    return get_theta_from_rotation_matrix(R_so)
 
 
-def get_theta_from_matrix(mat: np.ndarray) -> float:
+def get_theta_from_rotation_matrix(mat: np.ndarray) -> float:
     """
     Returns theta from a matrix M
 
@@ -75,6 +75,44 @@ def get_rotation_matrix_from_theta(theta: float) -> np.ndarray:
     return np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
 
 
+def get_rotation_matrix_from_transformation_matrix(T: np.ndarray) -> np.ndarray:
+    """Returns the rotation matrix from the transformation matrix
+
+    Args:
+        T (np.ndarray): the transformation matrix
+
+    Returns:
+        np.ndarray: the rotation matrix
+    """
+    return T[:2, :2]
+
+
+def get_theta_from_transformation_matrix(T: np.ndarray) -> float:
+    """Returns the angle theta from a transformation matrix
+
+    Args:
+        T (np.ndarray): the transformation matrix
+
+    Returns:
+        float: the angle theta
+    """
+    return get_theta_from_rotation_matrix(
+        get_rotation_matrix_from_transformation_matrix(T)
+    )
+
+
+def get_translation_from_transformation_matrix(T: np.ndarray) -> np.ndarray:
+    """Returns the translation from a transformation matrix
+
+    Args:
+        T (np.ndarray): the transformation matrix
+
+    Returns:
+        np.ndarray: the translation
+    """
+    return T[:2, 2]
+
+
 def get_random_rotation_matrix(dim: int = 2) -> np.ndarray:
     """Returns a random rotation matrix of size dim x dim"""
     if dim == 2:
@@ -82,6 +120,52 @@ def get_random_rotation_matrix(dim: int = 2) -> np.ndarray:
         return get_rotation_matrix_from_theta(theta)
     else:
         raise NotImplementedError("Only implemented for dim = 2")
+
+
+def get_random_transformation_matrix(dim: int = 2) -> np.ndarray:
+    if dim == 2:
+        R = get_random_rotation_matrix(dim)
+        t = get_random_vector(dim)
+        return make_transformation_matrix(R, t)
+    else:
+        raise NotImplementedError("Only implemented for dim = 2")
+
+
+def make_transformation_matrix(R: np.ndarray, t: np.ndarray) -> np.ndarray:
+    """
+    Returns the transformation matrix from a rotation matrix and translation vector
+
+    Args:
+        R (np.ndarray): the rotation matrix
+        t (np.ndarray): the translation vector
+
+    Returns:
+        np.ndarray: the transformation matrix
+    """
+    _check_rotation_matrix(R)
+    T = np.eye(3)
+    T[:2, :2] = R
+    T[:2, 2] = t
+    _check_transformation_matrix(T)
+    return T
+
+
+def make_transformation_matrix_from_theta(
+    theta: float,
+    translation: np.ndarray,
+) -> np.ndarray:
+    """
+    Returns the transformation matrix from theta and translation
+
+    Args:
+        theta (float): the angle of rotation
+        translation (np.ndarray): the translation
+
+    Returns:
+        np.ndarray: the transformation matrix
+    """
+    R = get_rotation_matrix_from_theta(theta)
+    return make_transformation_matrix(R, translation)
 
 
 #### test functions ####
@@ -142,6 +226,29 @@ def _check_is_laplacian(L: np.ndarray):
     ones = np.ones(L.shape[0])
     zeros = np.zeros(L.shape[0])
     assert np.allclose(L @ ones, zeros), f"L @ ones != zeros: {L @ ones}"
+
+
+def _check_transformation_matrix(T: np.ndarray, assert_test: bool = True):
+    """Checks that the matrix passed in is a homogeneous transformation matrix.
+    If assert_test is True, then this is in the form of assertions, otherwise we
+    just print out error messages but continue
+
+    Args:
+        T (np.ndarray): the matrix to test
+        assert_test (bool, optional): Whether this is a 'hard' test and is
+        asserted or just a 'soft' test and only prints message if test fails. Defaults to True.
+    """
+    _check_square(T)
+    assert T.shape[0] == 3, "only considering 2d world right now so matrix must be 3x3"
+
+    # check that is rotation matrix in upper left block
+    R = T[0:2, 0:2]
+    _check_rotation_matrix(R, assert_test=assert_test)
+
+    # check that the bottom row is [0, 0, 1]
+    bottom = T[2, :]
+    bottom_expected: np.ndarray = np.ndarray([0, 0, 1])
+    assert np.allclose(bottom.flatten(), bottom_expected)
 
 
 #### print functions ####

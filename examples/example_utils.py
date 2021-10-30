@@ -1,16 +1,9 @@
 import os
-from os.path import join, expanduser
-import sys
-import re
+from os.path import join
 from typing import List, Tuple
+import re
 
-sys.path.insert(0, os.path.abspath(".."))
-
-from factor_graph.parse_factor_graph import (
-    parse_efg_file,
-    parse_pickle_file,
-)
-from ro_slam.solve_mle_qcqp import solve_mle_problem, SolverParams
+from ro_slam.utils.solver_utils import QcqpSolverParams, GtsamSolverParams
 
 
 def get_folders_in_dir(path) -> List[str]:
@@ -68,14 +61,14 @@ def get_factor_graph_file_in_dir(path) -> str:
     raise ValueError(f"No factor graph file found in the directory: {path}")
 
 
-def get_results_filename(
-    solver_params: SolverParams,
+def get_qcqp_results_filename(
+    solver_params: QcqpSolverParams,
     filetype: str = "pickle",
 ) -> str:
     """Returns the name of the results file
 
     Args:
-        solver_params (SolverParams): the solver parameters
+        solver_params (QcqpSolverParams): the solver parameters
 
     Returns:
         str: the file name giving details of the solver params
@@ -103,49 +96,24 @@ def get_results_filename(
     return file_name
 
 
-if __name__ == "__main__":
-    base_dir = expanduser(join("~", "data", "manhattan"))
-    solver_params = SolverParams(
-        solver="gurobi",
-        verbose=True,
-        save_results=True,
-        use_socp_relax=True,
-        use_orthogonal_constraint=False,
-        init_technique="none",
-        solve_nonconvex=True,
-    )
-    results_filetype = "pickle"
+def get_gtsam_results_filename(
+    solver_params: GtsamSolverParams,
+    filetype: str = "pickle",
+) -> str:
+    """Returns the name of the results file
 
-    # do a recursive search and then test on all of the .pickle files found
-    pickle_files = recursively_find_pickle_files(base_dir)
-    for pickle_dir, pickle_file in pickle_files:
+    Args:
+        solver_params (GtsamSolverParams): the solver parameters
 
-        if not pickle_file == "factor_graph.pickle":
-            continue
+    Returns:
+        str: the file name giving details of the solver params
+    """
+    file_name = "{gtsam}_"
 
-        # get the factor graph filepath
-        fg_filepath = join(pickle_dir, pickle_file)
+    file_name += f"init{solver_params.init_technique}_"
 
-        # get the file name to save results to
-        results_file_name = get_results_filename(solver_params, results_filetype)
-        results_filepath = join(pickle_dir, results_file_name)
+    file_name += "_results."
 
-        # if "100_timesteps" not in fg_filepath:
-        #     continue
-        # if "3_beacons" not in fg_filepath:
-        #     continue
-        # if "50_loop"not  in fg_filepath:
-        #     continue
-        # if "100_loop"not  in fg_filepath:
-        #     continue
-
-        if fg_filepath.endswith(".pickle"):
-            fg = parse_pickle_file(fg_filepath)
-        elif fg_filepath.endswith(".fg"):
-            fg = parse_efg_file(fg_filepath)
-        else:
-            raise ValueError(f"Unknown file type: {fg_filepath}")
-        print(f"Loaded data: {fg_filepath}")
-
-        solve_mle_problem(fg, solver_params, results_filepath)
-    print()
+    # add in results.txt and return
+    file_name += filetype
+    return file_name

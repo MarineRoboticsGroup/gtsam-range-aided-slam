@@ -3,17 +3,22 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
-from factor_graph.factor_graph import FactorGraphData
-from factor_graph.variables import PoseVariable, LandmarkVariable
+from matplotlib.colors import to_rgba
+from py_factor_graph.factor_graph import FactorGraphData
+from py_factor_graph.variables import PoseVariable, LandmarkVariable
 from ro_slam.utils.circle_utils import Arc, Circle, CircleIntersection, Point
 from ro_slam.utils.solver_utils import SolverResults, VariableValues
+from ro_slam.utils.matrix_utils import (
+    _check_transformation_matrix,
+    get_theta_from_rotation_matrix,
+)
 
 colors = ["red", "green", "blue", "orange", "purple", "black", "cyan"]
 
 
 def plot_error(
     data: FactorGraphData,
-    solved_results: Dict[str, Dict[str, np.ndarray]],
+    solved_results: SolverResults,
     grid_size: int,
 ) -> None:
     """
@@ -37,7 +42,7 @@ def plot_error(
         Args:
             ax (plt.Axes): the axes to draw on
             gt_data (FactorGraphData): the groundtruth data
-            solution_data (SolverResults): the solved values of the variables
+            solution_results (SolverResults): the solved values of the variables
         """
         num_pose_chains = len(gt_data.pose_variables)
         pose_chain_len = len(gt_data.pose_variables[0])
@@ -60,7 +65,7 @@ def plot_error(
 
         for landmark in gt_data.landmark_variables:
             draw_landmark_variable(ax, landmark)
-            draw_landmark_solution(ax, solution_data["landmarks"][landmark.name])
+            draw_landmark_solution(ax, solution_data.landmarks[landmark.name])
 
         pose_var_plot_obj: List[mpatches.FancyArrow] = []
         pose_sol_plot_obj: List[mpatches.FancyArrow] = []
@@ -74,15 +79,15 @@ def plot_error(
                 # draw inferred solution
                 soln_arrow = draw_pose_solution(
                     ax,
-                    solution_data["translations"][pose.name],
-                    solution_data["rotations"][pose.name],
+                    solution_data.translations[pose.name],
+                    solution_data.rotations[pose.name],
                 )
                 pose_sol_plot_obj.append(soln_arrow)
 
                 # draw arc to inferred landmarks
                 for landmark_idx, landmark in enumerate(gt_data.landmark_variables):
-                    soln_pose_center = solution_data["translations"][pose.name]
-                    soln_landmark_center = solution_data["landmarks"][landmark.name]
+                    soln_pose_center = solution_data.translations[pose.name]
+                    soln_landmark_center = solution_data.landmarks[landmark.name]
                     range_key = (pose.name, landmark.name)
                     if range_key in range_measure_dict:
                         arc_radius = range_measure_dict[range_key]
@@ -105,7 +110,7 @@ def plot_error(
                 if pose.name in loop_closure_dict:
                     loop_line, loop_pose = draw_loop_closure_measurement(
                         ax,
-                        solution_data["translations"][pose.name],
+                        solution_data.translations[pose.name],
                         loop_closure_dict[pose.name],
                     )
                 else:
@@ -127,8 +132,8 @@ def plot_error(
 
         plt.close()
 
-    if data.num_poses < 50:
-        return
+    # if data.num_poses < 50:
+    #     return
 
     # set up plot
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -145,7 +150,7 @@ def plot_error(
 def plot_error_with_custom_init(
     data: FactorGraphData,
     solved_results: SolverResults,
-    local_results: VariableValues,
+    initial_values: VariableValues,
     grid_size: int,
 ) -> None:
     """
@@ -153,10 +158,8 @@ def plot_error_with_custom_init(
 
     Args:
         data (FactorGraphData): the groundtruth data
-        solved_results (Dict[str, Dict[str, np.ndarray]]): the solved values of
-        the variables
-        local_results (Dict[str, Dict[str, np.ndarray]]): the values after local
-        refinement
+        solved_results (SolverResults): the solved values of the variables
+        initial_values (VariableValues): the initial values of the variables before solving
         grid_size (int): the size of the grid
 
     """
@@ -168,8 +171,8 @@ def plot_error_with_custom_init(
     def draw_all_information(
         ax: plt.Axes,
         gt_data: FactorGraphData,
-        solution_data: Dict[str, Dict[str, np.ndarray]],
-        local_data: Dict[str, Dict[str, np.ndarray]],
+        solution_results: SolverResults,
+        init_vals: VariableValues,
         use_arrows: bool = True,
     ):
         """Draws the pose estimates and groundtruth
@@ -200,7 +203,7 @@ def plot_error_with_custom_init(
 
         for landmark in gt_data.landmark_variables:
             draw_landmark_variable(ax, landmark)
-            draw_landmark_solution(ax, solution_data["landmarks"][landmark.name])
+            draw_landmark_solution(ax, solution_results.landmarks[landmark.name])
 
         pose_var_plot_obj: List[mpatches.FancyArrow] = []
         pose_sol_plot_obj: List[mpatches.FancyArrow] = []
@@ -215,22 +218,24 @@ def plot_error_with_custom_init(
                 # draw inferred solution
                 soln_arrow = draw_pose_solution(
                     ax,
-                    solution_data["translations"][pose.name],
-                    solution_data["rotations"][pose.name],
+                    solution_results.translations[pose.name],
+                    solution_results.rotations[pose.name],
+                    alpha=0.5,
                 )
                 pose_sol_plot_obj.append(soln_arrow)
 
-                # draw inferred local solution
-                local_arrow = draw_pose_solution(
+                # draw the initial point used
+                init_arrow = draw_pose_solution(
                     ax,
-                    local_results["translations"][pose.name],
-                    local_results["rotations"][pose.name],
+                    init_vals.poses[pose.name],
+                    color="green",
+                    alpha=0.5,
                 )
-                pose_local_sol_plot_obj.append(local_arrow)
+                pose_local_sol_plot_obj.append(init_arrow)
 
                 # draw arc to inferred landmarks
                 for landmark_idx, landmark in enumerate(gt_data.landmark_variables):
-                    soln_pose_center = solution_data["translations"][pose.name]
+                    soln_pose_center = solution_results.translations[pose.name]
                     range_key = (pose.name, landmark.name)
                     if range_key in range_measure_dict:
                         arc_radius = range_measure_dict[range_key]
@@ -250,7 +255,7 @@ def plot_error_with_custom_init(
                 if pose.name in loop_closure_dict:
                     loop_line, loop_pose = draw_loop_closure_measurement(
                         ax,
-                        solution_data["translations"][pose.name],
+                        solution_results.translations[pose.name],
                         loop_closure_dict[pose.name],
                     )
                 else:
@@ -275,8 +280,8 @@ def plot_error_with_custom_init(
 
         plt.close()
 
-    if data.num_poses < 50:
-        return
+    # if data.num_poses < 50:
+    #     return
 
     # set up plot
     fig, ax = plt.subplots(figsize=(10, 10))
@@ -287,7 +292,7 @@ def plot_error_with_custom_init(
     ax.set_ylim(-0.5, grid_size + 0.5)
 
     # draw all poses to view static image result
-    draw_all_information(ax, data, solved_results, local_results)
+    draw_all_information(ax, data, solved_results, initial_values)
 
 
 def draw_arrow(
@@ -360,13 +365,19 @@ def draw_pose_variable(ax: plt.Axes, pose: PoseVariable):
     return draw_arrow(ax, true_x, true_y, true_theta, color="blue")
 
 
-def draw_pose_solution(ax: plt.Axes, translation: np.ndarray, rotation: np.ndarray):
-    assert translation.size == 2
-    assert rotation.size == 1
-    x = translation[0]
-    y = translation[1]
-    theta = float(rotation)
-    return draw_arrow(ax, x, y, theta, color="red")
+def draw_pose_solution(
+    ax: plt.Axes,
+    pose: np.ndarray,
+    color: str = "red",
+    alpha: float = 1.0,
+):
+    _check_transformation_matrix(pose)
+    x = pose[0, 2]
+    y = pose[1, 2]
+    theta = get_theta_from_rotation_matrix(pose[0:2, 0:2])
+
+    coloring = to_rgba(color, alpha)
+    return draw_arrow(ax, x, y, theta, color=coloring)
 
 
 def draw_loop_closure_measurement(
@@ -417,11 +428,14 @@ def draw_arc_patch(
     """
     center = arc.center
     radius = arc.radius
+
+    assert arc.thetas is not None
     theta1, theta2 = arc.thetas
+
     # generate the points
     theta = np.linspace((theta1), (theta2), resolution)
     points = np.vstack(
-        (radius * np.cos(theta) + center[0], radius * np.sin(theta) + center[1])
+        (radius * np.cos(theta) + center.x, radius * np.sin(theta) + center.y)
     )
     # build the polygon and add it to the axes
     poly = mpatches.Polygon(points.T, closed=True)

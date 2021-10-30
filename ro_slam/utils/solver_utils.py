@@ -1,25 +1,21 @@
-from typing import Union, Dict, Optional
+from typing import Union, Dict, Optional, Tuple
 import pickle
 from os.path import isfile
 import numpy as np
 import attr
 
 
-from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ignore
-from pydrake.solvers.ipopt import IpoptSolver
-from pydrake.solvers.snopt import SnoptSolver
-from pydrake.solvers.gurobi import GurobiSolver
-from pydrake.solvers.mosek import MosekSolver
-
 from ro_slam.utils.matrix_utils import (
-    get_theta_from_matrix,
+    get_theta_from_rotation_matrix,
+    get_theta_from_transformation_matrix,
+    get_translation_from_transformation_matrix,
     _check_rotation_matrix,
-    get_theta_from_matrix_so_projection,
+    _check_transformation_matrix,
 )
 
 
 @attr.s(frozen=True)
-class SolverParams:
+class QcqpSolverParams:
     solver: str = attr.ib()
     verbose: bool = attr.ib()
     save_results: bool = attr.ib()
@@ -30,11 +26,39 @@ class SolverParams:
 
 
 @attr.s(frozen=True)
+class GtsamSolverParams:
+    verbose: bool = attr.ib()
+    save_results: bool = attr.ib()
+    init_technique: str = attr.ib()
+    custom_init_file: Optional[str] = attr.ib()
+
+
+@attr.s(frozen=True)
 class VariableValues:
-    translations: Dict[str, np.ndarray] = attr.ib()
-    rotations: Dict[str, np.ndarray] = attr.ib()
+    poses: Dict[str, np.ndarray] = attr.ib()
+    # translations: Dict[str, np.ndarray] = attr.ib()
+    # rotations: Dict[str, np.ndarray] = attr.ib()
     landmarks: Dict[str, np.ndarray] = attr.ib()
-    distances: Dict[str, np.ndarray] = attr.ib()
+    distances: Optional[Dict[Tuple[str, str], np.ndarray]] = attr.ib()
+
+    @poses.validator
+    def _check_poses(self, attribute, value: Dict[str, np.ndarray]):
+        for pose in value.values():
+            _check_transformation_matrix(pose)
+
+    @property
+    def rotations(self):
+        return {
+            key: get_theta_from_transformation_matrix(value)
+            for key, value in self.poses.items()
+        }
+
+    @property
+    def translations(self):
+        return {
+            key: get_translation_from_transformation_matrix(value)
+            for key, value in self.poses.items()
+        }
 
 
 @attr.s(frozen=True)
@@ -42,6 +66,22 @@ class SolverResults:
     variables: VariableValues = attr.ib()
     total_time: float = attr.ib()
     solved: bool = attr.ib()
+
+    @property
+    def translations(self):
+        return self.variables.translations
+
+    @property
+    def rotations(self):
+        return self.variables.rotations
+
+    @property
+    def landmarks(self):
+        return self.variables.landmarks
+
+    @property
+    def distances(self):
+        return self.variables.distances
 
 
 def print_state(
@@ -61,7 +101,7 @@ def print_state(
     """
     trans_solve = result.GetSolution(translations[pose_key]).round(decimals=2)
     rot_solve = result.GetSolution(rotations[pose_key])
-    theta_solve = get_theta_from_matrix(rot_solve)
+    theta_solve = get_theta_from_rotation_matrix(rot_solve)
 
     trans_string = np.array2string(trans_solve, precision=1, floatmode="fixed")
 
@@ -75,7 +115,7 @@ def print_state(
 
 def save_results_to_file(
     result,
-    solved_results: Dict[str, Dict[str, np.ndarray]],
+    solved_results: SolverResults,
     filepath: str,
 ):
     """
@@ -100,8 +140,8 @@ def save_results_to_file(
 
     elif filepath.endswith(".txt"):
         with open(filepath, "w") as f:
-            translations = solved_results["translations"]
-            rotations = solved_results["rotations"]
+            translations = solved_results.translations
+            rotations = solved_results.rotations
             for pose_key in translations.keys():
                 trans_solve = translations[pose_key]
                 theta_solve = rotations[pose_key]
@@ -117,7 +157,7 @@ def save_results_to_file(
                 )
                 f.write(status)
 
-            landmarks = solved_results["landmarks"]
+            landmarks = solved_results.landmarks
             for landmark_key in landmarks.keys():
                 landmark_solve = landmarks[landmark_key]
 
@@ -140,56 +180,6 @@ def save_results_to_file(
     print(f"Results saved to: {filepath}\n")
 
 
-def get_solved_values(
-    result,
-    translations: Dict[str, np.ndarray],
-    rotations: Dict[str, np.ndarray],
-    landmarks: Dict[str, np.ndarray],
-    distances: Dict[str, np.ndarray],
-) -> SolverResults:
-    """
-    Returns the solved values from the result
-
-    Args:
-        result (Drake Result Object): the result of the solution
-        translations (Dict[str, np.ndarray]): the translation variables
-        rotations (Dict[str, np.ndarray]): the rotation variables
-        landmarks (Dict[str, np.ndarray]): the landmark variables
-
-    Returns:
-        Dict[str, np.ndarray]: the solved translations
-        Dict[str, np.ndarray]: the solved rotations
-        Dict[str, np.ndarray]: the solved landmarks
-        Dict[str, np.ndarray]: the solved distances
-    """
-    solved_translations = {
-        key: result.GetSolution(translations[key]) for key in translations.keys()
-    }
-    solved_rotations = {
-        key: np.asarray(
-            get_theta_from_matrix_so_projection(result.GetSolution(rotations[key]))
-        )
-        for key in rotations.keys()
-    }
-    solved_landmarks = {
-        key: result.GetSolution(landmarks[key]) for key in landmarks.keys()
-    }
-    solved_distances = {
-        key: result.GetSolution(distances[key]) for key in distances.keys()
-    }
-
-    return SolverResults(
-        VariableValues(
-            translations=solved_translations,
-            rotations=solved_rotations,
-            landmarks=solved_landmarks,
-            distances=solved_distances,
-        ),
-        total_time=result.get_total_time(),
-        solved=result.is_success(),
-    )
-
-
 def check_rotations(result, rotations: Dict[str, np.ndarray]):
     """
     checks that results are valid rotations
@@ -203,47 +193,7 @@ def check_rotations(result, rotations: Dict[str, np.ndarray]):
         _check_rotation_matrix(rot_result)
 
 
-def get_solver(
-    solver_name: str,
-) -> Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver]:
-    """
-    Returns the solver for the given name
-    """
-    if solver_name == "ipopt":
-        return IpoptSolver()
-    elif solver_name == "snopt":
-        return SnoptSolver()
-    elif solver_name == "gurobi":
-        return GurobiSolver()
-    elif solver_name == "mosek":
-        return MosekSolver()
-    else:
-        raise ValueError(f"Unknown solver: {solver_name}")
-
-
-def set_solver_verbose(
-    model: MathematicalProgram,
-    solver: Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver],
-):
-    """Sets the given solver to verbose output
-
-    Args:
-        solver (Union[IpoptSolver, SnoptSolver, GurobiSolver, MosekSolver]): [description]
-    """
-    if isinstance(solver, IpoptSolver):
-        raise NotImplementedError("IpoptSolver verbose logging not implemented")
-    elif isinstance(solver, SnoptSolver):
-        print("SnoptSolver verbose logging not implemented")
-    elif isinstance(solver, GurobiSolver):
-        model.SetSolverOption(solver.solver_id(), "OutputFlag", True)
-        model.SetSolverOption(solver.solver_id(), "LogToConsole", True)
-    elif isinstance(solver, MosekSolver):
-        solver.set_stream_logging(True, "/home/alan/mosek_log.out")
-    else:
-        raise ValueError("Unknown solver")
-
-
-def load_custom_init_file(file_path: str) -> SolverResults:
+def load_custom_init_file(file_path: str) -> VariableValues:
     """Loads the custom init file
 
     Args:
@@ -253,7 +203,12 @@ def load_custom_init_file(file_path: str) -> SolverResults:
     assert isfile(file_path), f"File {file_path} does not exist"
     assert file_path.endswith(".pickle"), f"File {file_path} must end with '.pickle'"
 
+    print(f"Loading custom init file: {file_path}")
     with open(file_path, "rb") as f:
         init_dict = pickle.load(f)
-        assert isinstance(init_dict, SolverResults), "Loaded object is not a dict"
-        return init_dict
+        if isinstance(init_dict, SolverResults):
+            return init_dict.variables
+        elif isinstance(init_dict, VariableValues):
+            return init_dict
+        else:
+            raise ValueError(f"Unknown type: {type(init_dict)}")

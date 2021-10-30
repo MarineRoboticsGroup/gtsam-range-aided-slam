@@ -4,10 +4,10 @@ import re
 import time
 
 from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ignore
-from factor_graph.factor_graph import FactorGraphData
+from py_factor_graph.factor_graph import FactorGraphData
 
-from ro_slam.utils.qcqp_utils import (
-    pin_first_pose,
+import ro_slam.utils.drake_utils as du
+from ro_slam.utils.drake_utils import (
     add_pose_variables,
     add_landmark_variables,
     add_distance_variables,
@@ -16,7 +16,7 @@ from ro_slam.utils.qcqp_utils import (
     add_loop_closure_cost,
     set_rotation_init_gt,
     set_rotation_init_compose,
-    set_rotation_init_random_rotation,
+    set_rotation_init_random,
     set_rotation_init_custom,
     set_translation_init_gt,
     set_translation_init_compose,
@@ -25,7 +25,7 @@ from ro_slam.utils.qcqp_utils import (
     set_distance_init_gt,
     set_distance_init_measured,
     set_distance_init_random,
-    set_distance_init_custom,
+    set_distance_init_valid,
     set_landmark_init_gt,
     set_landmark_init_random,
     set_landmark_init_custom,
@@ -35,19 +35,21 @@ from ro_slam.utils.plot_utils import (
     plot_error_with_custom_init,
 )
 from ro_slam.utils.solver_utils import (
-    SolverParams,
+    QcqpSolverParams,
     SolverResults,
-    get_solved_values,
     save_results_to_file,
     load_custom_init_file,
-    get_solver,
-    set_solver_verbose,
+)
+from ro_slam.utils.drake_utils import (
+    get_solved_drake_values,
+    get_drake_solver,
+    set_drake_solver_verbose,
 )
 
 
-def solve_mle_problem(
+def solve_mle_qcqp(
     data: FactorGraphData,
-    solver_params: SolverParams,
+    solver_params: QcqpSolverParams,
     results_filepath: str,
 ):
     """
@@ -70,7 +72,7 @@ def solve_mle_problem(
         solver_params.solver in solver_options
     ), f"Invalid solver, must be from: {solver_options}"
 
-    init_options = ["gt", "compose", "random", "none"]
+    init_options = ["gt", "compose", "random", "none", "custom"]
     assert (
         solver_params.init_technique in init_options
     ), f"Invalid init_technique, must be from: {init_options}"
@@ -83,72 +85,76 @@ def solve_mle_problem(
     model = MathematicalProgram()
 
     # form objective function
-    translations, rotations = add_pose_variables(
+    translations, rotations = du.add_pose_variables(
         model, data, solver_params.use_orthogonal_constraint
     )
     print("Added pose variables")
     assert (translations.keys()) == (rotations.keys())
 
-    landmarks = add_landmark_variables(model, data)
+    landmarks = du.add_landmark_variables(model, data)
     print("Added landmark variables")
-    distances = add_distance_variables(
+    distances = du.add_distance_variables(
         model, data, translations, landmarks, solver_params.use_socp_relax
     )
     print("Added distance variables")
 
-    add_distances_cost(model, distances, data)
-    add_odom_cost(model, translations, rotations, data)
-    add_loop_closure_cost(model, translations, rotations, data)
+    du.add_distances_cost(model, distances, data)
+    du.add_odom_cost(model, translations, rotations, data)
+    du.add_loop_closure_cost(model, translations, rotations, data)
 
     # pin first pose at origin
-    pin_first_pose(model, translations["A0"], rotations["A0"])
+    du.pin_first_pose(model, translations["A0"], rotations["A0"])
 
     if solver_params.init_technique == "gt":
-        set_rotation_init_gt(model, rotations, data)
-        set_translation_init_gt(model, translations, data)
-        set_distance_init_gt(model, distances, data)
-        set_landmark_init_gt(model, landmarks, data)
+        du.set_rotation_init_gt(model, rotations, data)
+        du.set_translation_init_gt(model, translations, data)
+        du.set_distance_init_gt(model, distances, data)
+        du.set_landmark_init_gt(model, landmarks, data)
     elif solver_params.init_technique == "compose":
-        set_rotation_init_compose(model, rotations, data)
-        set_translation_init_compose(model, translations, data)
-        set_distance_init_measured(model, distances, data)
-        set_landmark_init_random(model, landmarks, data)
+        du.set_rotation_init_compose(model, rotations, data)
+        du.set_translation_init_compose(model, translations, data)
+        du.set_distance_init_measured(model, distances, data)
+        du.set_landmark_init_random(model, landmarks)
     elif solver_params.init_technique == "random":
-        set_rotation_init_random_rotation(model, rotations)
-        set_translation_init_random(model, translations)
-        set_distance_init_random(model, distances)
-        set_landmark_init_random(model, landmarks)
+        du.set_rotation_init_random(model, rotations)
+        du.set_translation_init_random(model, translations)
+        du.set_distance_init_random(model, distances)
+        du.set_landmark_init_random(model, landmarks)
     elif solver_params.init_technique == "custom":
+        assert (
+            solver_params.custom_init_file is not None
+        ), "Must provide custom_init_filepath if using custom init"
         custom_vals = load_custom_init_file(solver_params.custom_init_file)
-        init_rotations = custom_vals["rotations"]
-        init_translations = custom_vals["translations"]
-        init_landmarks = custom_vals["landmarks"]
-        init_distances = custom_vals["distances"]
-        set_rotation_init_custom(model, rotations, init_rotations)
-        set_translation_init_custom(model, translations, init_translations)
-        set_landmark_init_custom(model, landmarks, init_landmarks)
-        set_distance_init_custom(model, distances, init_distances)
+        init_rotations = custom_vals.rotations
+        init_translations = custom_vals.translations
+        init_landmarks = custom_vals.landmarks
+        du.set_rotation_init_custom(model, rotations, init_rotations)
+        du.set_translation_init_custom(model, translations, init_translations)
+        du.set_landmark_init_custom(model, landmarks, init_landmarks)
+        du.set_distance_init_valid(model, distances, init_translations, init_landmarks)
 
     # perform optimization
     print("Starting solver...")
 
     t_start = time.time()
     try:
-        solver = get_solver(solver_params.solver)
+        solver = get_drake_solver(solver_params.solver)
         if solver_params.verbose:
-            set_solver_verbose(model, solver)
+            set_drake_solver_verbose(model, solver)
 
         result = solver.Solve(model)
     except Exception as e:
         print("Error: ", e)
         return
     t_end = time.time()
-    print(f"Solved in {t_end - t_start} seconds")
+    tot_time = t_end - t_start
+    print(f"Solved in {tot_time} seconds")
+    print(f"Solver success: {result.is_success()}")
 
     # check_rotations(result, rotations)
 
-    solution_vals = get_solved_values(
-        result, translations, rotations, landmarks, distances
+    solution_vals = get_solved_drake_values(
+        result, tot_time, translations, rotations, landmarks, distances
     )
 
     if solver_params.save_results:
