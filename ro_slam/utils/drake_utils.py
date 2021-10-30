@@ -814,7 +814,7 @@ def add_drake_distance_equality_constraint(
 ##### Misc
 
 
-def get_solved_drake_values(
+def get_solved_values(
     result: DrakeResult,
     time: float,
     translations: Dict[str, np.ndarray],

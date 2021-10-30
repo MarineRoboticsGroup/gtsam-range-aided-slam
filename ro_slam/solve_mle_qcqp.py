@@ -7,29 +7,6 @@ from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ign
 from py_factor_graph.factor_graph import FactorGraphData
 
 import ro_slam.utils.drake_utils as du
-from ro_slam.utils.drake_utils import (
-    add_pose_variables,
-    add_landmark_variables,
-    add_distance_variables,
-    add_distances_cost,
-    add_odom_cost,
-    add_loop_closure_cost,
-    set_rotation_init_gt,
-    set_rotation_init_compose,
-    set_rotation_init_random,
-    set_rotation_init_custom,
-    set_translation_init_gt,
-    set_translation_init_compose,
-    set_translation_init_random,
-    set_translation_init_custom,
-    set_distance_init_gt,
-    set_distance_init_measured,
-    set_distance_init_random,
-    set_distance_init_valid,
-    set_landmark_init_gt,
-    set_landmark_init_random,
-    set_landmark_init_custom,
-)
 from ro_slam.utils.plot_utils import (
     plot_error,
     plot_error_with_custom_init,
@@ -39,11 +16,6 @@ from ro_slam.utils.solver_utils import (
     SolverResults,
     save_results_to_file,
     load_custom_init_file,
-)
-from ro_slam.utils.drake_utils import (
-    get_solved_drake_values,
-    get_drake_solver,
-    set_drake_solver_verbose,
 )
 
 
@@ -138,9 +110,9 @@ def solve_mle_qcqp(
 
     t_start = time.time()
     try:
-        solver = get_drake_solver(solver_params.solver)
+        solver = du.get_drake_solver(solver_params.solver)
         if solver_params.verbose:
-            set_drake_solver_verbose(model, solver)
+            du.set_drake_solver_verbose(model, solver)
 
         result = solver.Solve(model)
     except Exception as e:
@@ -151,9 +123,7 @@ def solve_mle_qcqp(
     print(f"Solved in {tot_time} seconds")
     print(f"Solver success: {result.is_success()}")
 
-    # check_rotations(result, rotations)
-
-    solution_vals = get_solved_drake_values(
+    solution_vals = du.get_solved_values(
         result, tot_time, translations, rotations, landmarks, distances
     )
 

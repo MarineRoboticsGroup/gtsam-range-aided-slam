@@ -6,6 +6,7 @@ from gtsam.gtsam import (
     ISAM2Params,
     ISAM2DoglegParams,
     ISAM2,
+    Values,
 )
 
 from py_factor_graph.factor_graph import FactorGraphData
@@ -20,6 +21,7 @@ from ro_slam.utils.solver_utils import (
     save_results_to_file,
     load_custom_init_file,
 )
+from ro_slam.utils.matrix_utils import make_transformation_matrix
 
 import ro_slam.utils.gtsam_utils as gt_ut
 
@@ -50,6 +52,7 @@ def solve_mle_gtsam(
     ), f"Invalid init_technique, must be from: {init_options}"
 
     factor_graph = NonlinearFactorGraph()
+    initial_values = Values()
 
     # form objective function
     gt_ut.add_distances_cost(factor_graph, data)
@@ -61,14 +64,14 @@ def solve_mle_gtsam(
 
     # choose an initialization strategy
     if solver_params.init_technique == "gt":
-        gt_ut.set_pose_init_gt(factor_graph, data)
-        gt_ut.set_landmark_init_gt(factor_graph, data)
+        gt_ut.set_pose_init_gt(initial_values, data)
+        gt_ut.set_landmark_init_gt(initial_values, data)
     elif solver_params.init_technique == "compose":
-        gt_ut.set_pose_init_compose(factor_graph, data)
-        gt_ut.set_landmark_init_random(factor_graph, data)
+        gt_ut.set_pose_init_compose(initial_values, data)
+        gt_ut.set_landmark_init_random(initial_values, data)
     elif solver_params.init_technique == "random":
-        gt_ut.set_pose_init_random(factor_graph, data)
-        gt_ut.set_landmark_init_random(factor_graph, data)
+        gt_ut.set_pose_init_random(initial_values, data)
+        gt_ut.set_landmark_init_random(initial_values, data)
     elif solver_params.init_technique == "custom":
         assert (
             solver_params.custom_init_file is not None
@@ -76,21 +79,31 @@ def solve_mle_gtsam(
         custom_vals = load_custom_init_file(solver_params.custom_init_file)
         init_rotations = custom_vals.rotations
         init_translations = custom_vals.translations
+        init_poses = {
+            key: make_transformation_matrix(init_rotations[key], init_translations[key])
+            for key in init_rotations.keys()
+        }
         init_landmarks = custom_vals.landmarks
-        gt_ut.set_pose_init_custom(factor_graph, init_rotations)
-        gt_ut.set_landmark_init_custom(factor_graph, init_landmarks)
+        gt_ut.set_pose_init_custom(initial_values, init_poses)
+        gt_ut.set_landmark_init_custom(initial_values, init_landmarks)
 
     # perform optimization
-    print("Starting solver...")
+    print("Initializing solver...")
 
+    # initialize the ISAM2 instance
+    parameters = ISAM2Params()
+    parameters.setOptimizationParams(ISAM2DoglegParams())
+    print(f"ISAM Params: {parameters}")
+    isam_solver = ISAM2(parameters)
+    isam_solver.update(factor_graph, initial_values)
+
+    print("Solving ...")
     t_start = time.time()
     try:
-        raise NotImplementedError("Solver not implemented")
-        # solver = get_drake_solver(solver_params.solver)
-        # if solver_params.verbose:
-        #     set_drake_solver_verbose(factor_graph, solver)
+        if solver_params.verbose:
+            print("Do not have verbose settings for GTSAM yet")
 
-        # result = solver.Solve(factor_graph)
+        result = isam_solver.calculateEstimate()
     except Exception as e:
         print("Error: ", e)
         return
@@ -98,19 +111,12 @@ def solve_mle_gtsam(
     tot_time = t_end - t_start
     print(f"Solved in {tot_time} seconds")
 
-    # TODO get success measure (does GTSAM offer this?)
-    # print(f"Solver success: {result.is_success()}")
-
-    # check_rotations(result, rotations)
-
     # TODO get solution
-    # solution_vals = gt_ut.get_solved_values(
-    #     result, tot_time, translations, rotations, landmarks, distances
-    # )
+    solution_vals = gt_ut.get_solved_values(result, tot_time, data)
 
     # TODO finish saving
-    # if solver_params.save_results:
-    #     save_results_to_file(result, solution_vals, results_filepath)
+    if solver_params.save_results:
+        save_results_to_file(result, solution_vals, results_filepath)
 
     grid_size_str = re.search(r"\d+_grid", results_filepath).group(0)  # type: ignore
     grid_size = int(grid_size_str.split("_")[0])

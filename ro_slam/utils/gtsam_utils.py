@@ -303,7 +303,7 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
 ##### Misc
 
 
-def get_solved_gtsam_values(
+def get_solved_values(
     result: Values, time: float, data: FactorGraphData
 ) -> SolverResults:
     """
@@ -321,10 +321,18 @@ def get_solved_gtsam_values(
         Dict[str, np.ndarray]: the solved landmarks
         Dict[str, np.ndarray]: the solved distances
     """
-    raise NotImplementedError("Have not written this function yet")
     solved_poses: Dict[str, np.ndarray] = {}
     solved_landmarks: Dict[str, np.ndarray] = {}
     solved_distances = None
+
+    for pose_chain in data.pose_variables:
+        for pose_var in pose_chain:
+            pose_key = pose_var.name
+            solved_poses[pose_key] = result.at(pose_key)
+
+    for landmark in data.landmark_variables:
+        landmark_key = landmark.name
+        solved_landmarks[landmark_key] = result.at(landmark_key)
 
     return SolverResults(
         VariableValues(
