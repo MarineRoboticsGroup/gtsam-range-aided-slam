@@ -11,6 +11,7 @@ from ro_slam.utils.solver_utils import SolverResults, VariableValues
 from ro_slam.utils.matrix_utils import (
     _check_transformation_matrix,
     get_theta_from_rotation_matrix,
+    get_translation_from_transformation_matrix,
 )
 
 colors = ["red", "green", "blue", "orange", "purple", "black", "cyan"]
@@ -20,6 +21,7 @@ def plot_error(
     data: FactorGraphData,
     solved_results: SolverResults,
     grid_size: int,
+    color_dist_circles: bool = False,
 ) -> None:
     """
     Plots the error for the given data
@@ -79,8 +81,7 @@ def plot_error(
                 # draw inferred solution
                 soln_arrow = draw_pose_solution(
                     ax,
-                    solution_data.translations[pose.name],
-                    solution_data.rotations[pose.name],
+                    solution_data.poses[pose.name],
                 )
                 pose_sol_plot_obj.append(soln_arrow)
 
@@ -89,7 +90,7 @@ def plot_error(
                     soln_pose_center = solution_data.translations[pose.name]
                     soln_landmark_center = solution_data.landmarks[landmark.name]
                     range_key = (pose.name, landmark.name)
-                    if range_key in range_measure_dict:
+                    if color_dist_circles and range_key in range_measure_dict:
                         arc_radius = range_measure_dict[range_key]
                         dist_circle = Circle(
                             Point(soln_pose_center[0], soln_pose_center[1]), arc_radius
@@ -218,8 +219,7 @@ def plot_error_with_custom_init(
                 # draw inferred solution
                 soln_arrow = draw_pose_solution(
                     ax,
-                    solution_results.translations[pose.name],
-                    solution_results.rotations[pose.name],
+                    solution_results.poses[pose.name],
                     alpha=0.5,
                 )
                 pose_sol_plot_obj.append(soln_arrow)
@@ -372,8 +372,7 @@ def draw_pose_solution(
     alpha: float = 1.0,
 ):
     _check_transformation_matrix(pose)
-    x = pose[0, 2]
-    y = pose[1, 2]
+    x, y = get_translation_from_transformation_matrix(pose)
     theta = get_theta_from_rotation_matrix(pose[0:2, 0:2])
 
     coloring = to_rgba(color, alpha)

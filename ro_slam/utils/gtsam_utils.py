@@ -10,7 +10,8 @@ from gtsam.gtsam import (
     noiseModel,
     BetweenFactorPose2,
     Pose2,
-    PosePriorFactorPose2,
+    PriorFactorPose2,
+    symbol,
 )
 
 from py_factor_graph.factor_graph import FactorGraphData
@@ -22,6 +23,8 @@ from ro_slam.utils.matrix_utils import (
     get_random_transformation_matrix,
     get_rotation_matrix_from_theta,
     get_theta_from_rotation_matrix_so_projection,
+    get_theta_from_transformation_matrix,
+    get_translation_from_transformation_matrix,
 )
 from ro_slam.utils.solver_utils import SolverResults, VariableValues
 
@@ -43,12 +46,12 @@ def add_distances_cost(
 
     """
     for range_measure in data.range_measurements:
-        pose_key = range_measure.pose_key
-        landmark_key = range_measure.landmark_key
+        pose_symbol = get_symbol_from_name(range_measure.pose_key)
+        landmark_symbol = get_symbol_from_name(range_measure.landmark_key)
 
         range_noise = noiseModel.Isotropic.Sigma(1, range_measure.stddev)
         range_factor = RangeFactor2D(
-            pose_key, landmark_key, range_measure.dist, range_noise
+            pose_symbol, landmark_symbol, range_measure.dist, range_noise
         )
         graph.push_back(range_factor)
 
@@ -76,13 +79,13 @@ def add_odom_cost(
         for odom_measure in odom_chain:
 
             # the indices of the related poses in the odometry measurement
-            i_key = odom_measure.base_pose
-            j_key = odom_measure.to_pose
+            i_symbol = get_symbol_from_name(odom_measure.base_pose)
+            j_symbol = get_symbol_from_name(odom_measure.to_pose)
 
             # add the factor to the factor graph
             odom_noise = noiseModel.Diagonal.Sigmas(np.diag(odom_measure.covariance))
             rel_pose = Pose2(odom_measure.x, odom_measure.y, odom_measure.theta)
-            odom_factor = BetweenFactorPose2(i_key, j_key, rel_pose, odom_noise)
+            odom_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, odom_noise)
             graph.push_back(odom_factor)
 
 
@@ -108,19 +111,19 @@ def add_loop_closure_cost(
     for loop_measure in data.loop_closure_measurements:
 
         # the indices of the related poses in the odometry measurement
-        i_key = loop_measure.base_pose
-        j_key = loop_measure.to_pose
+        i_symbol = get_symbol_from_name(loop_measure.base_pose)
+        j_symbol = get_symbol_from_name(loop_measure.to_pose)
 
         loop_noise = noiseModel.Diagonal.Sigmas(np.diag(loop_measure.covariance))
         rel_pose = Pose2(loop_measure.x, loop_measure.y, loop_measure.theta)
-        loop_factor = BetweenFactorPose2(i_key, j_key, rel_pose, loop_noise)
+        loop_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, loop_noise)
         graph.push_back(loop_factor)
 
 
 ##### Initialization strategies #####
 
 
-def init_pose_variable(init_vals: Values, pose_key: str, pose: np.ndarray):
+def init_pose_variable(init_vals: Values, pose_key: str, val: np.ndarray):
     """
     Initialize the rotation variables to the given rotation matrix.
 
@@ -128,9 +131,10 @@ def init_pose_variable(init_vals: Values, pose_key: str, pose: np.ndarray):
         rot (np.ndarray): The rotation variables.
         mat (np.ndarray): The rotation matrix.
     """
-    _check_square(pose)
-    assert pose.shape[0] == 3, "The pose must be a 3x3 matrix"
-    # init_vals.insert
+    _check_transformation_matrix(val)
+    pose_symbol = get_symbol_from_name(pose_key)
+    pose = get_pose2_from_matrix(val)
+    init_vals.insert(pose_symbol, pose)
 
 
 def init_landmark_variable(init_vals: Values, lmk_key: str, val: np.ndarray):
@@ -138,7 +142,9 @@ def init_landmark_variable(init_vals: Values, lmk_key: str, val: np.ndarray):
 
     Args:
     """
-    raise NotImplementedError("Method not implemented")
+    assert val.shape == (2,), "The landmark must be a 2D vector"
+    landmark_symbol = get_symbol_from_name(lmk_key)
+    init_vals.insert(landmark_symbol, val)
 
 
 def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
@@ -284,8 +290,9 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
 
     # get the first pose variable
     pose = data.pose_variables[0][0]
-    pose_key = pose.name
-    true_pose = pose.transformation_matrix
+    pose_symbol = get_symbol_from_name(pose.name)
+    true_pose = Pose2(pose.true_position[0], pose.true_position[1], pose.true_theta)
+    # pose.transformation_matrix
 
     # build the prior noise model
     x_stddev = 0.1
@@ -296,7 +303,7 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
     )
 
     # add the prior factor
-    pose_prior = PosePriorFactorPose2(pose_key, true_pose, prior_uncertainty)
+    pose_prior = PriorFactorPose2(pose_symbol, true_pose, prior_uncertainty)
     graph.push_back(pose_prior)
 
 
@@ -328,11 +335,13 @@ def get_solved_values(
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
             pose_key = pose_var.name
-            solved_poses[pose_key] = result.at(pose_key)
+            pose_symbol = get_symbol_from_name(pose_key)
+            solved_poses[pose_key] = result.atPose2(pose_symbol).matrix()
 
     for landmark in data.landmark_variables:
         landmark_key = landmark.name
-        solved_landmarks[landmark_key] = result.at(landmark_key)
+        landmark_symbol = get_symbol_from_name(landmark.name)
+        solved_landmarks[landmark_key] = result.atPoint2(landmark_symbol)
 
     return SolverResults(
         VariableValues(
@@ -345,5 +354,21 @@ def get_solved_values(
     )
 
 
-def get_symbol_from_name(name: str):
-    return name.split("_")[1]
+def get_symbol_from_name(name: str) -> symbol:
+    """
+    Returns the symbol from a variable name
+    """
+    assert isinstance(name, str)
+    capital_letters_pattern = re.compile(r"^[A-Z][0-9]+$")
+    assert capital_letters_pattern.match(name) is not None, "Invalid name"
+
+    return symbol(name[0], int(name[1:]))
+
+
+def get_pose2_from_matrix(pose_matrix: np.ndarray) -> Pose2:
+    """
+    Returns the pose2 from a transformation matrix
+    """
+    theta = get_theta_from_transformation_matrix(pose_matrix)
+    trans = get_translation_from_transformation_matrix(pose_matrix)
+    return Pose2(trans[0], trans[1], theta)

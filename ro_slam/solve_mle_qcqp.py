@@ -128,7 +128,12 @@ def solve_mle_qcqp(
     )
 
     if solver_params.save_results:
-        save_results_to_file(result, solution_vals, results_filepath)
+        save_results_to_file(
+            solution_vals,
+            result.is_success(),
+            result.get_optimal_cost(),
+            results_filepath,
+        )
 
     grid_size_str = re.search(r"\d+_grid", results_filepath).group(0)  # type: ignore
     grid_size = int(grid_size_str.split("_")[0])

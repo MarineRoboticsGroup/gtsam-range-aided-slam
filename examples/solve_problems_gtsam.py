@@ -22,7 +22,7 @@ if __name__ == "__main__":
     solver_params = GtsamSolverParams(
         verbose=True,
         save_results=True,
-        init_technique="none",
+        init_technique="gt",
         custom_init_file=None,
     )
     results_filetype = "pickle"
@@ -61,5 +61,3 @@ if __name__ == "__main__":
         solve_mle_gtsam(fg, solver_params, results_filepath)
 
     print()
-
-    raise NotImplementedError

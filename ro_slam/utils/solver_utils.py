@@ -68,6 +68,10 @@ class SolverResults:
     solved: bool = attr.ib()
 
     @property
+    def poses(self):
+        return self.variables.poses
+
+    @property
     def translations(self):
         return self.variables.translations
 
@@ -114,8 +118,9 @@ def print_state(
 
 
 def save_results_to_file(
-    result,
     solved_results: SolverResults,
+    solved_cost: float,
+    solve_success: bool,
     filepath: str,
 ):
     """
@@ -132,8 +137,8 @@ def save_results_to_file(
         pickle_file = open(filepath, "wb")
         pickle.dump(solved_results, pickle_file)
         solve_info = {
-            "success": result.is_success(),
-            "optimal_cost": result.get_optimal_cost(),
+            "success": solve_success,
+            "optimal_cost": solved_cost,
         }
         pickle.dump(solve_info, pickle_file)
         pickle_file.close()
@@ -169,8 +174,8 @@ def save_results_to_file(
                 )
                 f.write(status)
 
-            f.write(f"Is optimization successful? {result.is_success()}\n")
-            f.write(f"optimal cost: {result.get_optimal_cost()}")
+            f.write(f"Is optimization successful? {solve_success}\n")
+            f.write(f"optimal cost: {solved_cost}")
 
     else:
         raise ValueError(

@@ -46,7 +46,7 @@ def solve_mle_gtsam(
         use_orthogonal_constraint (bool): whether to use orthogonal
             constraint on rotation variables
     """
-    init_options = ["gt", "compose", "random", "none", "custom"]
+    init_options = ["gt", "compose", "random", "custom"]
     assert (
         solver_params.init_technique in init_options
     ), f"Invalid init_technique, must be from: {init_options}"
@@ -97,13 +97,14 @@ def solve_mle_gtsam(
     isam_solver = ISAM2(parameters)
     isam_solver.update(factor_graph, initial_values)
 
+    # run the optimization
     print("Solving ...")
     t_start = time.time()
     try:
         if solver_params.verbose:
             print("Do not have verbose settings for GTSAM yet")
 
-        result = isam_solver.calculateEstimate()
+        gtsam_result = isam_solver.calculateEstimate()
     except Exception as e:
         print("Error: ", e)
         return
@@ -111,19 +112,26 @@ def solve_mle_gtsam(
     tot_time = t_end - t_start
     print(f"Solved in {tot_time} seconds")
 
-    # TODO get solution
-    solution_vals = gt_ut.get_solved_values(result, tot_time, data)
-
-    # TODO finish saving
+    # get the results and save if desired
+    solution_vals = gt_ut.get_solved_values(gtsam_result, tot_time, data)
     if solver_params.save_results:
-        save_results_to_file(result, solution_vals, results_filepath)
+        save_results_to_file(
+            solution_vals,
+            solved_cost=factor_graph.error(gtsam_result),
+            solve_success=True,
+            filepath=results_filepath,
+        )
 
-    grid_size_str = re.search(r"\d+_grid", results_filepath).group(0)  # type: ignore
-    grid_size = int(grid_size_str.split("_")[0])
+    # get the grid size to aid in plotting
+    grid_size_search = re.search(r"\d+_grid", results_filepath)
+    assert grid_size_search is not None, "Grid size not found in results filepath"
+    grid_size = int(grid_size_search.group(0).split("_")[0])
 
-    # TODO finish plotting
-    # if solver_params.init_technique == "custom":
-    #     plot_error_with_custom_init(data, solution_vals, custom_vals, grid_size)
-    # else:
-    #     # do not use custom init so we just compare to GT pose
-    #     plot_error(data, solution_vals, grid_size)
+    print(solution_vals.distances)
+
+    # perform plotting
+    if solver_params.init_technique == "custom":
+        plot_error_with_custom_init(data, solution_vals, custom_vals, grid_size)
+    else:
+        # do not use custom init so we just compare to GT pose
+        plot_error(data, solution_vals, grid_size)
