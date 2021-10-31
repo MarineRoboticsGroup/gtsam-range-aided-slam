@@ -1,455 +1,145 @@
-import cvxpy as cp
-import numpy as np
-from os.path import expanduser, join
-from typing import List, Tuple
-import matplotlib.pyplot as plt
-import scipy.linalg as la
+from typing import Optional
+import attr
+import re
+import time
 
-from factor_graph.parse_factor_graph import parse_factor_graph_file
-from factor_graph.factor_graph import (
-    OdomMeasurement,
-    RangeMeasurement,
-    PoseVariable,
-    LandmarkVariable,
-    PosePrior,
-    LandmarkPrior,
-    FactorGraphData,
+from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ignore
+from py_factor_graph.factor_graph import FactorGraphData
+
+import ro_slam.utils.drake_utils as du
+from ro_slam.utils.plot_utils import (
+    plot_error,
+    plot_error_with_custom_init,
 )
-from utils import (
-    _block_diag,
-    _print_eigvals,
-    _check_is_laplacian,
-    _check_symmetric,
-    _check_psd,
-    _general_kron,
-    _matprint_block,
+from ro_slam.utils.solver_utils import (
+    QcqpSolverParams,
+    SolverResults,
+    save_results_to_file,
+    load_custom_init_file,
 )
 
-from qcqp.qcqp import QCQP
-from qcqp.settings import COORD_DESCENT, ADMM, DCCP, IPOPT  # improve
-from qcqp.settings import RANDOM, SDR, SPECTRAL, FIXED  # suggest
 
-
-def _get_range_constraint_matrices(
+def solve_mle_qcqp(
     data: FactorGraphData,
-) -> List[np.ndarray]:
-    """gets the range constraint matrix for the lagrangian dual
-
-    args:
-        data (FactorGraphData): the data
-
-    returns:
-        List[np.ndarray]: the range constraint matrices
-    """
-    mat_dim = data.poses_and_landmarks_dimension + data.distance_variables_dimension
-    d = data.dimension
-    constraint_matrices: List[np.ndarray] = []
-
-    # iterate over all range measurements
-    for measure in data.range_measurements:
-        assert isinstance(measure, RangeMeasurement)
-
-        # get the indices of the corresponding pose translation
-        measured_pose = data.get_range_measurement_pose(measure)
-        i_start, i_end = data.get_pose_translation_variable_indices(measured_pose)
-        assert isinstance(i_start, int) and isinstance(i_end, int)
-        assert i_start < i_end
-        assert i_start >= 0
-        assert i_end <= data.num_poses * d
-
-        # get the indices of the corresponding landmark translation
-        measured_landmark = data.get_range_measurement_landmark(measure)
-        j_start, j_end = data.get_landmark_translation_variable_indices(
-            measured_landmark
-        )
-        assert isinstance(j_start, int) and isinstance(
-            j_end, int
-        ), f"bad indices:{j_start}, {j_end}"
-        assert j_start < j_end, f"bad indices:{j_start}, {j_end}"
-        assert j_start >= data.num_poses * d
-        assert (
-            j_end <= data.num_translations * d
-        ), f"{j_end} > {data.num_translations * d}"
-
-        # this matrix represents the quadratic constraint between the
-        # distance variable d_ij and the two translations it is relating
-        # (t_i, t_j) -> d_ij^2 = ||t_i - t_j||^2
-        Kij = np.zeros((mat_dim, mat_dim))
-
-        # The block matrices on the diagonals corresponding to the
-        # translations are identity matrices and the ones on the
-        # off-diagonals are negative identity matrices
-        Kij[i_start:i_end, i_start:i_end] = np.eye(d)
-        Kij[j_start:j_end, j_start:j_end] = np.eye(d)
-
-        Kij[i_start:i_end, j_start:j_end] = -np.eye(d)
-        Kij[j_start:j_end, i_start:i_end] = -np.eye(d)
-
-        # add in the component corresponding to the distance variable
-        dij_idx = data.get_range_dist_variable_indices(measure)
-        Kij[dij_idx, dij_idx] = -1
-
-        # sanity check this
-        _check_symmetric(Kij)
-
-        # Finally, we scale this by this constraints corresponding lagrange
-        # multiplier and add it all together to the big matrix where we are
-        # summing these constraints
-        constraint_matrices.append(Kij)
-
-    return constraint_matrices
-
-
-def _get_rotation_constraint_matrices(
-    data: FactorGraphData,
-) -> Tuple[List[np.ndarray], List[np.ndarray]]:
-    """gets the rotation constraint matrices for the qcqp
-    enforcing that R.T @ R = I for all rotations
-
-    args:
-        data (FactorGraphData): the data
-
-    returns:
-        List[np.ndarray]: the rotation constraint matrices which under quadratic
-            product equal 1
-        List[np.ndarray]: the rotation constraint matrices which under quadratic
-            product equal 0
-    """
-
-    mat_dim = data.poses_and_landmarks_dimension + data.distance_variables_dimension
-    d = data.dimension
-    ones_constraints: List[np.ndarray] = []
-    zeros_constraints: List[np.ndarray] = []
-
-    # add lagrange multipliers
-    # for _ in range(data.num_poses):
-    for pose in data.pose_variables:
-        start_idx, end_idx = data.get_pose_rotation_variable_indices(pose)
-
-        # step by 'd' every time to access the 'd'x'd' subblocks
-        # we are adding the quadratic constraints that equal one here
-        for i in range(start_idx, end_idx, d):
-            E_iuv_ones = np.zeros((mat_dim, mat_dim))
-            E_iuv_ones[i : i + d, i : i + d] = np.eye(d)
-            ones_constraints.append(E_iuv_ones)
-
-        # step by 'd' every time to access the 'd'x'd' subblocks
-        # we are adding the quadratic constraints that equal zero here
-        for i in range(start_idx, end_idx, d):
-            for j in range(start_idx, end_idx, d):
-                if i == j:
-                    continue  # skip the diagonal
-
-                assert i != j  # this should never happen
-                E_iuv_zeros = np.zeros((mat_dim, mat_dim))
-                E_iuv_zeros[i : i + d, j : j + d] = np.eye(d)
-                zeros_constraints.append(E_iuv_zeros)
-
-    return ones_constraints, zeros_constraints
-
-
-def solve_mle_problem(data: FactorGraphData):
+    solver_params: QcqpSolverParams,
+    results_filepath: str,
+):
     """
     Takes the data describing the problem and returns the MLE solution to the
     poses and landmark positions
 
     args:
         data (FactorGraphData): the data describing the problem
+        solver (str): the solver to use [ipopt, snopt, default]
+        verbose (bool): whether to show verbose solver output
+        save_results (bool): whether to save the results to a file
+        results_filepath (str): the path to save the results to
+        use_socp_relax (bool): whether to use socp relaxation on distance
+            variables
+        use_orthogonal_constraint (bool): whether to use orthogonal
+            constraint on rotation variables
     """
+    solver_options = ["mosek", "gurobi", "ipopt", "snopt", "default"]
+    assert (
+        solver_params.solver in solver_options
+    ), f"Invalid solver, must be from: {solver_options}"
+
+    init_options = ["gt", "compose", "random", "none", "custom"]
+    assert (
+        solver_params.init_technique in init_options
+    ), f"Invalid init_technique, must be from: {init_options}"
+
+    if solver_params.solver in ["mosek", "gurobi"]:
+        assert (
+            solver_params.use_socp_relax and not solver_params.use_orthogonal_constraint
+        ), "Mosek and Gurobi solver only used to solve convex problems"
+
+    model = MathematicalProgram()
+
     # form objective function
-    Q, D = _get_data_matrix(data)
-    _check_psd(Q)
-    _check_psd(D)
-    full_data_matrix = la.block_diag(Q, D)
-    _check_psd(full_data_matrix)
-    x = cp.Variable(full_data_matrix.shape[0])
-    objective = cp.quad_form(x, full_data_matrix)
+    translations, rotations = du.add_pose_variables(
+        model, data, solver_params.use_orthogonal_constraint
+    )
+    print("Added pose variables")
+    assert (translations.keys()) == (rotations.keys())
 
-    # form constraints
-    constraints: List[cp.Constraint] = []
-    range_constraint_matrices: List[np.ndarray] = _get_range_constraint_matrices(data)
-    for const_matrix in range_constraint_matrices:
-        # plt.spy(const_matrix)
-        # plt.show()
-        constraints.append(cp.quad_form(x, const_matrix) == 0)
+    landmarks = du.add_landmark_variables(model, data)
+    print("Added landmark variables")
+    distances = du.add_distance_variables(
+        model, data, translations, landmarks, solver_params.use_socp_relax
+    )
+    print("Added distance variables")
 
-    (
-        ones_rotation_constraints,
-        zeros_rotation_constraints,
-    ) = _get_rotation_constraint_matrices(data)
-    assert len(ones_rotation_constraints) > 0
-    assert len(zeros_rotation_constraints) > 0
-    for const_matrix in ones_rotation_constraints:
-        # plt.spy(const_matrix)
-        # plt.show()
-        constraints.append(cp.quad_form(x, const_matrix) == 1)
+    du.add_distances_cost(model, distances, data)
+    du.add_odom_cost(model, translations, rotations, data)
+    du.add_loop_closure_cost(model, translations, rotations, data)
 
-    for const_matrix in zeros_rotation_constraints:
-        # plt.spy(const_matrix)
-        # plt.plot([0, 90], [0, 90])
-        # plt.show()
-        constraints.append(cp.quad_form(x, const_matrix) == 0)
+    # pin first pose at origin
+    du.pin_first_pose(model, translations["A0"], rotations["A0"])
 
-    constraints.append(cp.square(x[-1]) == 1)
-    # form problem
-    prob = cp.Problem(cp.Minimize(objective), constraints)
+    if solver_params.init_technique == "gt":
+        du.set_rotation_init_gt(model, rotations, data)
+        du.set_translation_init_gt(model, translations, data)
+        du.set_distance_init_gt(model, distances, data)
+        du.set_landmark_init_gt(model, landmarks, data)
+    elif solver_params.init_technique == "compose":
+        du.set_rotation_init_compose(model, rotations, data)
+        du.set_translation_init_compose(model, translations, data)
+        du.set_distance_init_measured(model, distances, data)
+        du.set_landmark_init_random(model, landmarks)
+    elif solver_params.init_technique == "random":
+        du.set_rotation_init_random(model, rotations)
+        du.set_translation_init_random(model, translations)
+        du.set_distance_init_random(model, distances)
+        du.set_landmark_init_random(model, landmarks)
+    elif solver_params.init_technique == "custom":
+        assert (
+            solver_params.custom_init_file is not None
+        ), "Must provide custom_init_filepath if using custom init"
+        custom_vals = load_custom_init_file(solver_params.custom_init_file)
+        init_rotations = custom_vals.rotations
+        init_translations = custom_vals.translations
+        init_landmarks = custom_vals.landmarks
+        du.set_rotation_init_custom(model, rotations, init_rotations)
+        du.set_translation_init_custom(model, translations, init_translations)
+        du.set_landmark_init_custom(model, landmarks, init_landmarks)
+        du.set_distance_init_valid(model, distances, init_translations, init_landmarks)
 
-    # plug into QCQP framework
-    qcqp = QCQP(prob)
+    # perform optimization
+    print("Starting solver...")
 
-    for i in range(100):
-        # Solve the SDP relaxation and get a starting point to a local method
-        # suggest_methods = [RANDOM, SDR, SPECTRAL, FIXED]
-        # qcqp.suggest(SDR)
-        # suggest_cost, suggest_viol = qcqp.suggest(SDR)
-        # suggest_cost = qcqp.sdr_bound
-        suggest_cost, suggest_viol = qcqp.suggest(FIXED, fixed_guess=data.true_values_vector)
-        # print("SDR lower bound: %.3f" % qcqp.sdr_bound)
-        # qcqp.suggest(SPECTRAL)
-        # print("SDR lower bound: %.3f" % qcqp.spectral_bound)
+    t_start = time.time()
+    try:
+        solver = du.get_drake_solver(solver_params.solver)
+        if solver_params.verbose:
+            du.set_drake_solver_verbose(model, solver)
 
-        # Attempt to improve the starting point given by the suggest method
-        # improve_methods = [COORD_DESCENT, ADMM, DCCP, IPOPT]
-        f_cd, v_cd = qcqp.improve(COORD_DESCENT)
-        # f_cd, v_cd = qcqp.improve(ADMM)
-        # f_cd, v_cd = qcqp.improve(DCCP)
-        # f_cd, v_cd = qcqp.improve(IPOPT)
-        print("Coordinate descent: objective %.3f, violation %.3f" % (f_cd, v_cd))
-        print(f"Optimality Gap {f_cd - suggest_cost}")
-        print()
-        # print(x.value)
+        result = solver.Solve(model)
+    except Exception as e:
+        print("Error: ", e)
+        return
+    t_end = time.time()
+    tot_time = t_end - t_start
+    print(f"Solved in {tot_time} seconds")
+    print(f"Solver success: {result.is_success()}")
 
-
-def _get_data_matrix(data: FactorGraphData) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Gets the matrix of the data for the MLE problem
-
-    Args:
-        data (FactorGraphData): the data describing the problem
-
-    Returns:
-        (np.ndarray): the pose graph data matrix (kron(M, I) from SE-Sync 18b)
-        (np.ndarray): the ranging data matrix (D from my own math)
-    """
-
-    def _get_translation_laplacian(data: FactorGraphData) -> np.ndarray:
-        """
-        Gets the translation laplacian as defined in SE-Sync equation 13a
-
-        args:
-            data (FactorGraphData): the data describing the problem
-        """
-        L = np.zeros((data.num_translations, data.num_translations))
-        for measure in data.odometry_measurements:
-            i = measure.base_pose_index
-            j = measure.to_pose_index
-            weight = measure.translation_weight
-
-            L[i, i] += weight
-            L[j, j] += weight
-
-            assert L[i, j] == 0
-            assert L[j, i] == 0
-            L[i, j] -= weight
-            L[j, i] -= weight
-
-        _check_is_laplacian(L)
-        return L
-
-    def _get_connection_laplacian(data: FactorGraphData, dim: int) -> np.ndarray:
-        """gets the graph connection laplacian as described in SE-Sync
-        equations 14a and 14b
-
-        args:
-            data (FactorGraphData): the factor graph data
-            dim (int): the dimension of the latent space (e.g. 2d or 3d)
-
-        returns:
-            np.ndarray: the connection laplacian
-        """
-        L = np.zeros((d * data.num_poses, d * data.num_poses))
-        I_d = np.eye(d)
-        for measure in data.odometry_measurements:
-            i = measure.base_pose_index
-            j = measure.to_pose_index
-            weight = measure.rotation_weight
-
-            i_idx = i * dim
-            j_idx = j * dim
-
-            L[i_idx : i_idx + dim, i_idx : i_idx + dim] += weight * I_d
-            L[j_idx : j_idx + dim, j_idx : j_idx + dim] += weight * I_d
-
-            assert all(
-                x == 0 for x in L[i_idx : i_idx + dim, j_idx : j_idx + dim].flatten()
-            )
-            assert all(
-                x == 0 for x in L[j_idx : j_idx + dim, i_idx : i_idx + dim].flatten()
-            )
-            L[i_idx : i_idx + dim, j_idx : j_idx + dim] -= (
-                weight * measure.rotation_matrix
-            )
-            L[j_idx : j_idx + dim, i_idx : i_idx + dim] -= (
-                weight * measure.rotation_matrix.T
-            )
-
-        _check_symmetric(L)
-        _check_psd(L)
-        return L
-
-    def _get_weighted_translation_matrix(data: FactorGraphData, dim: int) -> np.ndarray:
-        """gets the weighted (1xd)-block-structured translation matrix as
-        described in SE-Sync equation 15
-
-        args:
-            data (FactorGraphData): the factor graph data
-            dim (int): the dimension of the latent space (e.g. 2d or 3d)
-
-        returns:
-            np.ndarray: the weighted translation matrix
-        """
-        V = np.zeros((data.num_translations, dim * data.num_poses))
-        cnt = 0
-        for measure in data.odometry_measurements:
-            cnt += 1
-            i = measure.base_pose_index
-            j = measure.to_pose_index
-            assert not (i == j)
-            weight = measure.translation_weight
-            vect = measure.translation_vector
-            assert vect.shape == (dim,)
-
-            V[i, dim * i : dim * (i + 1)] += weight * vect
-
-            assert all(x == 0 for x in V[j, dim * i : dim * (i + 1)])
-            V[j, dim * i : dim * (i + 1)] -= weight * vect
-
-        return V
-
-    def _get_weighted_translation_sigma_matrix(
-        data: FactorGraphData, dim: int
-    ) -> np.ndarray:
-        """gets the weighted (dxd)-block-structured translation matrix as
-        described in SE-Sync equation 16
-
-        args:
-            data (FactorGraphData): the factor graph data
-            dim (int): the dimension of the latent space (e.g. 2d or 3d)
-
-        returns:
-            np.ndarray: the weighted translation matrix
-        """
-        L = np.zeros((dim * data.num_poses, dim * data.num_poses))
-        for measure in data.odometry_measurements:
-            i = measure.base_pose_index
-            i_idx = i * dim
-            weight = measure.translation_weight
-
-            t_vec = measure.translation_vector
-            L[i_idx : i_idx + dim, i_idx : i_idx + dim] += weight * np.outer(
-                t_vec, t_vec
-            )
-
-        _check_symmetric(L)
-        _check_psd(L)
-        return L
-
-    def _get_weighted_range_matrix(data: FactorGraphData) -> np.ndarray:
-        """gets the weighted range measurement data matrix as described in my
-        notes in the latex subfolder in this repo
-
-        args:
-            data (FactorGraphData): the factor graph data
-
-        returns:
-            np.ndarray: the range measurement data matrix
-        """
-        mat_dim = data.num_range_measurements + 1
-        D = np.zeros((mat_dim, mat_dim))
-        D[0:mat_dim-1, 0:mat_dim-1] = np.diag(data.measurements_weight_vect)
-
-        noisy_dist_vect = data.weighted_dist_measurements_vect
-        D[0 : mat_dim - 1, mat_dim - 1] = -noisy_dist_vect
-        D[mat_dim - 1, 0 : mat_dim - 1] = -noisy_dist_vect.T
-        D[mat_dim - 1, mat_dim - 1] = data.sum_weighted_measurements_squared
-        _check_symmetric(D)
-        _check_psd(D)
-        return D
-
-    d = data.dimension
-    num_trans = data.num_translations
-    num_pose = data.num_poses
-
-    # SE-Sync equation 13a - num_translations x num_translations
-    weighted_translation_laplacian = _get_translation_laplacian(data)
-    assert weighted_translation_laplacian.shape == (
-        num_trans,
-        num_trans,
+    solution_vals = du.get_solved_values(
+        result, tot_time, translations, rotations, landmarks, distances
     )
 
-    # SE-Sync equation 14a - dn x dn
-    connection_laplacian = _get_connection_laplacian(data, d)
-    assert connection_laplacian.shape == (d * num_pose, d * num_pose)
+    if solver_params.save_results:
+        save_results_to_file(
+            solution_vals,
+            result.is_success(),
+            result.get_optimal_cost(),
+            results_filepath,
+        )
 
-    # SE-Sync equation 15 - n x dn
-    V = _get_weighted_translation_matrix(data, d)
-    assert V.shape == (num_trans, d * num_pose)
+    grid_size_str = re.search(r"\d+_grid", results_filepath).group(0)  # type: ignore
+    grid_size = int(grid_size_str.split("_")[0])
 
-    # SE-Sync Equation 16
-    Sigma = _get_weighted_translation_sigma_matrix(data, d)
-    assert Sigma.shape == (d * num_pose, d * num_pose)
-
-    # SE-Sync matrix M from equation 18b
-    M_dim = num_pose * (d) + num_trans
-    M = np.zeros((M_dim, M_dim))
-
-    # add translation laplacian to upper left block
-    M[:num_trans, :num_trans] = weighted_translation_laplacian
-
-    # add V to upper right block
-    assert all(
-        x == 0 for x in M[num_trans:, num_trans : num_trans + (d * num_pose)].flatten()
-    )
-    M[:num_trans, num_trans :] = V
-
-    # add V.T to lower left block
-    assert all(
-        x == 0 for x in M[num_trans : num_trans + (d * num_pose), :num_trans].flatten()
-    )
-    M[num_trans : , :num_trans] = V.T
-
-    # add connection laplacian to bottom right block
-    assert all(x == 0 for x in M[num_trans:, num_trans:].flatten())
-    M[num_trans:, num_trans:] = connection_laplacian
-    M[num_trans:, num_trans:] += Sigma
-
-    # quick check on this matrix to make sure it's symmetric, PSD
-    # _matprint_block(M)
-    _check_psd(M)
-    _check_symmetric(M)
-
-    pose_data_matrix = np.kron(M, np.eye(d))
-
-    # check the size of this matrix
-    final_dim = data.poses_and_landmarks_dimension
-    assert pose_data_matrix.shape == (
-        final_dim,
-        final_dim,
-    ), f"Data matrix shape: {pose_data_matrix.shape}is not ({final_dim}, {final_dim})"
-    _check_symmetric(pose_data_matrix)
-    _check_psd(pose_data_matrix)
-
-    range_data_matrix = _get_weighted_range_matrix(data)
-    # _matprint_block(range_data_matrix)
-    _check_psd(range_data_matrix)
-    _check_symmetric(range_data_matrix)
-
-    return pose_data_matrix, range_data_matrix
-
-
-if __name__ == "__main__":
-    file_name = "simEnvironment_grid20x20_rowCorner2_colCorner2_cellScale10_rangeProb05_rangeRadius40_falseRangeProb00_outlierProb01_loopClosureProb01_loopClosureRadius3_falseLoopClosureProb01_timestep10.fg"
-
-    filepath = expanduser(join("~", "data", "example_factor_graphs", file_name))
-    fg = parse_factor_graph_file(filepath)
-    solve_mle_problem(fg)
+    if solver_params.init_technique == "custom":
+        plot_error_with_custom_init(data, solution_vals, custom_vals, grid_size)
+    else:
+        # do not solve local so only print the relaxed solution
+        plot_error(data, solution_vals, grid_size)
