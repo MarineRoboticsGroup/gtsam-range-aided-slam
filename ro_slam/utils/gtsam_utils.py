@@ -7,6 +7,7 @@ from gtsam.gtsam import (
     NonlinearFactorGraph,
     Values,
     RangeFactor2D,
+    RangeFactorPose2,
     noiseModel,
     BetweenFactorPose2,
     Pose2,
@@ -50,10 +51,18 @@ def add_distances_cost(
         landmark_symbol = get_symbol_from_name(range_measure.landmark_key)
 
         range_noise = noiseModel.Isotropic.Sigma(1, range_measure.stddev)
-        range_factor = RangeFactor2D(
-            pose_symbol, landmark_symbol, range_measure.dist, range_noise
-        )
-        graph.push_back(range_factor)
+
+        # If the lankmark is actually secretly a pose, then we use RangeFactorPose2
+        if 'L' not in range_measure.landmark_key:
+            range_factor = RangeFactorPose2(
+                pose_symbol, landmark_symbol, range_measure.dist, range_noise
+            )
+            graph.push_back(range_factor)
+        else:
+            range_factor = RangeFactor2D(
+                pose_symbol, landmark_symbol, range_measure.dist, range_noise
+            )
+            graph.push_back(range_factor)
 
 
 def add_odom_cost(
@@ -351,6 +360,7 @@ def get_solved_values(
         ),
         total_time=time,
         solved=True,
+        pose_chain_names=data.get_pose_chain_names()
     )
 
 

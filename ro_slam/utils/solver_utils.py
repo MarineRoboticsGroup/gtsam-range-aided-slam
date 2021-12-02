@@ -1,4 +1,4 @@
-from typing import Union, Dict, Optional, Tuple
+from typing import Union, Dict, Optional, Tuple, List
 import pickle
 from os.path import isfile
 import numpy as np
@@ -66,6 +66,7 @@ class SolverResults:
     variables: VariableValues = attr.ib()
     total_time: float = attr.ib()
     solved: bool = attr.ib()
+    pose_chain_names: Optional[list] = attr.ib(default=None) # Default [[str]]
 
     @property
     def poses(self):
@@ -150,7 +151,6 @@ def save_results_to_file(
             for pose_key in translations.keys():
                 trans_solve = translations[pose_key]
                 theta_solve = rotations[pose_key]
-                assert theta_solve.size == 1
 
                 trans_string = np.array2string(
                     trans_solve, precision=1, floatmode="fixed"
@@ -176,7 +176,22 @@ def save_results_to_file(
 
             f.write(f"Is optimization successful? {solve_success}\n")
             f.write(f"optimal cost: {solved_cost}")
+    
+    # Outputs each posechain as a separate file with timestamp in TUM format
+    elif filepath.endswith(".tum"):
+        assert solved_results.pose_chain_names is not None, "Pose_chain_names must be provided for multi robot trajectories"
+        # TODO: Add support for exporting without pose_chain_names
+        for pose_chain in solved_results.pose_chain_names:
+            pose_chain_letter = pose_chain[0][0] # Get first letter of first pose in chain
+            modified_path = filepath.replace(".tum", f"_{pose_chain_letter}.tum")
+            with open(modified_path, "w") as f:
+                translations = solved_results.translations
+                rotations = solved_results.rotations
+                for pose_key in pose_chain:
+                    trans_solve = translations[pose_key]
+                    theta_solve = rotations[pose_key]
 
+                    f.write(f"0 {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n")
     else:
         raise ValueError(
             f"The file extension {filepath.split('.')[-1]} is not supported. "

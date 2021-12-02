@@ -119,17 +119,19 @@ def plot_error(
                     loop_pose = None
 
             plt.pause(0.1)
-            ax.patches = []
-            if loop_line and loop_pose:
-                loop_line.remove()
-                loop_pose.remove()
+            ax.patches.clear()
+            # print(ax.patches)
+            # ax.patches = []
+            # if loop_line and loop_pose:
+            #     loop_line.remove()
+            #     loop_pose.remove()
 
-            if pose_idx > 5:
-                # ax.remove(pose_sol_plot_obj[0])
-                pose_sol_plot_obj[0].remove()
-                pose_sol_plot_obj.pop(0)
-                pose_var_plot_obj[0].remove()
-                pose_var_plot_obj.pop(0)
+            # if pose_idx > 5:
+            #     # ax.remove(pose_sol_plot_obj[0])
+            #     pose_sol_plot_obj[0].remove()
+            #     pose_sol_plot_obj.pop(0)
+            #     pose_var_plot_obj[0].remove()
+            #     pose_var_plot_obj.pop(0)
 
         plt.close()
 
