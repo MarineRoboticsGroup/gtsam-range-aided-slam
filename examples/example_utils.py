@@ -25,11 +25,11 @@ def recursively_find_pickle_files(dir) -> List[Tuple[str, str]]:
 
     """
 
-    def num_timesteps_from_path(path: str) -> int:
-        trailing_phrase = "_timesteps"
-        info = re.search(r"\d+" + trailing_phrase, path).group(0)  # type: ignore
-        num_timesteps = int(info[: -len(trailing_phrase)])
-        return num_timesteps
+    # def num_timesteps_from_path(path: str) -> int:
+    #     trailing_phrase = "_timesteps"
+    #     info = re.search(r"\d+" + trailing_phrase, path).group(0)  # type: ignore
+    #     num_timesteps = int(info[: -len(trailing_phrase)])
+    #     return num_timesteps
 
     pickle_files = []
     for root, _, files in os.walk(dir):
@@ -37,7 +37,7 @@ def recursively_find_pickle_files(dir) -> List[Tuple[str, str]]:
             if file.endswith(".pickle"):
                 pickle_files.append((root, file))
 
-    pickle_files.sort(key=lambda x: num_timesteps_from_path(x[0]))
+    # pickle_files.sort(key=lambda x: num_timesteps_from_path(x[0]))
     return pickle_files
 
 

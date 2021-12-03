@@ -18,21 +18,25 @@ from ro_slam.solve_mle_gtsam import solve_mle_gtsam
 from example_utils import recursively_find_pickle_files, get_gtsam_results_filename
 
 if __name__ == "__main__":
-    base_dir = expanduser(join("~", "data", "manhattan"))
+    # base_dir = expanduser(join("~", "data", "manhattan"))
+    base_dir = expanduser(join("~", "final_pkgs", "py-rosbag-parsing", "py_rosbag_parser"))
     solver_params = GtsamSolverParams(
         verbose=True,
         save_results=True,
         init_technique="gt",
         custom_init_file=None,
     )
-    results_filetype = "pickle"
+    # results_filetype = "pickle"
+    results_filetype = "tum"
 
     # do a recursive search and then test on all of the .pickle files found
     pickle_files = recursively_find_pickle_files(base_dir)
+
+    assert len(pickle_files) > 0, "No pickle files found in {}".format(base_dir)
     for pickle_dir, pickle_file in pickle_files:
 
-        if not pickle_file == "factor_graph.pickle":
-            continue
+        # if not pickle_file == "factor_graph.pickle":
+        #     continue
 
         # get the factor graph filepath
         fg_filepath = join(pickle_dir, pickle_file)
@@ -57,7 +61,8 @@ if __name__ == "__main__":
         else:
             raise ValueError(f"Unknown file type: {fg_filepath}")
         print(f"Loaded data: {fg_filepath}")
-
+        print(fg.odom_measurements[1][955:965])
+        print(fg.range_measurements)
         solve_mle_gtsam(fg, solver_params, results_filepath)
 
     print()

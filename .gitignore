@@ -1,8 +1,7 @@
 *_results.txt
-/data/
-*.tum
+examples/*.tum
 *.kitti
-
+data/
 # OS generated files #
 ######################
 .DS_Store
@@ -100,10 +99,7 @@ build/
 *.png
 *.mp4
 *.jpg
-<<<<<<< HEAD
 *.xlsx
-=======
->>>>>>> fe892fc61eb06385eafaa8af2bef73d512f682ff
 
 # Blender #
 ###########
@@ -117,7 +113,3 @@ build/
 #######
 *.bag
 
-<<<<<<< HEAD
-
-=======
->>>>>>> fe892fc61eb06385eafaa8af2bef73d512f682ff

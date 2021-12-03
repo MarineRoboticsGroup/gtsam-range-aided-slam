@@ -57,7 +57,7 @@ def solve_mle_gtsam(
     # form objective function
     gt_ut.add_distances_cost(factor_graph, data)
     gt_ut.add_odom_cost(factor_graph, data)
-    gt_ut.add_loop_closure_cost(factor_graph, data)
+    # gt_ut.add_loop_closure_cost(factor_graph, data)
 
     # pin first pose at origin
     gt_ut.pin_first_pose(factor_graph, data)

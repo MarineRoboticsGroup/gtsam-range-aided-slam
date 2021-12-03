@@ -187,11 +187,11 @@ def save_results_to_file(
             with open(modified_path, "w") as f:
                 translations = solved_results.translations
                 rotations = solved_results.rotations
-                for pose_key in pose_chain:
+                for i, pose_key in enumerate(pose_chain):
                     trans_solve = translations[pose_key]
                     theta_solve = rotations[pose_key]
-
-                    f.write(f"0 {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n")
+                    # TODO: Add actual timestamps
+                    f.write(f"{i} {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n")
     else:
         raise ValueError(
             f"The file extension {filepath.split('.')[-1]} is not supported. "
