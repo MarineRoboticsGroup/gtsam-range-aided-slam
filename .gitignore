@@ -1,5 +1,7 @@
 *_results.txt
 /data/
+*.tum
+*.kitti
 
 # OS generated files #
 ######################
