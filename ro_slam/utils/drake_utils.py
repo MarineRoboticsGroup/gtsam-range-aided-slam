@@ -134,10 +134,17 @@ def add_distance_variables(
         distances[dist_key] = add_distance_var(model, name)
 
         # create distance constraint
-        # ||t_i - l_j||^2 <= d_ij^2
+        # ||t_i - t_j||^2 <= d_ij^2
         trans_i = translations[pose_key]
-        land_j = landmarks[landmark_key]
-        diff = trans_i - land_j
+
+        if landmark_key in landmarks:
+            trans_j = landmarks[landmark_key]
+        elif landmark_key in translations:
+            trans_j = translations[landmark_key]
+        else:
+            raise ValueError(f"Key: {landmark_key} not in landmarks or translations")
+
+        diff = trans_i - trans_j
 
         # give two options for how to implement the distance constraint
         if socp_relax:
@@ -146,7 +153,7 @@ def add_distance_variables(
         else:
             # nonconvex quadratic constraint
             add_drake_distance_equality_constraint(
-                model, trans_i, land_j, distances[dist_key]
+                model, trans_i, trans_j, distances[dist_key]
             )
 
     return distances
