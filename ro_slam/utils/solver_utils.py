@@ -187,25 +187,7 @@ def save_results_to_file(
 
     # Outputs each posechain as a separate file with timestamp in TUM format
     elif filepath.endswith(".tum"):
-        assert (
-            solved_results.pose_chain_names is not None
-        ), "Pose_chain_names must be provided for multi robot trajectories"
-        # TODO: Add support for exporting without pose_chain_names
-        for pose_chain in solved_results.pose_chain_names:
-            pose_chain_letter = pose_chain[0][
-                0
-            ]  # Get first letter of first pose in chain
-            modified_path = filepath.replace(".tum", f"_{pose_chain_letter}.tum")
-            with open(modified_path, "w") as f:
-                translations = solved_results.translations
-                rotations = solved_results.rotations
-                for i, pose_key in enumerate(pose_chain):
-                    trans_solve = translations[pose_key]
-                    theta_solve = rotations[pose_key]
-                    # TODO: Add actual timestamps
-                    f.write(
-                        f"{i} {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n"
-                    )
+        save_to_tum(solved_results, filepath)
     else:
         raise ValueError(
             f"The file extension {filepath.split('.')[-1]} is not supported. "
@@ -213,6 +195,30 @@ def save_results_to_file(
 
     print(f"Results saved to: {filepath}\n")
 
+
+def save_to_tum(solved_results: SolverResults, filepath: str, strip_extension: bool = False):
+    assert (
+        solved_results.pose_chain_names is not None
+    ), "Pose_chain_names must be provided for multi robot trajectories"
+    # TODO: Add support for exporting without pose_chain_names
+    for pose_chain in solved_results.pose_chain_names:
+        pose_chain_letter = pose_chain[0][0]  # Get first letter of first pose in chain
+
+        # Removes extension from filepath to add tum extension
+        if strip_extension:
+            filepath = filepath.split(".")[0] + ".tum"
+
+        modified_path = filepath.replace(".tum", f"_{pose_chain_letter}.tum")
+        with open(modified_path, "w") as f:
+            translations = solved_results.translations
+            rotations = solved_results.rotations
+            for i, pose_key in enumerate(pose_chain):
+                trans_solve = translations[pose_key]
+                theta_solve = rotations[pose_key]
+                # TODO: Add actual timestamps
+                f.write(
+                    f"{i} {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n"
+                )
 
 def check_rotations(result, rotations: Dict[str, np.ndarray]):
     """
