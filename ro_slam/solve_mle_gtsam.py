@@ -135,3 +135,54 @@ def solve_mle_gtsam(
     else:
         # do not use custom init so we just compare to GT pose
         plot_error(data, solution_vals, grid_size)
+
+
+if __name__ == "__main__":
+    import argparse
+    from os.path import join
+    from py_factor_graph.parse_factor_graph import (
+        parse_efg_file,
+        parse_pickle_file,
+    )
+
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument(
+        "data_dir", type=str, help="Path to the directory the PyFactorGraph is held in"
+    )
+    arg_parser.add_argument("pyfg_filename", type=str, help="name of the PyFactorGraph")
+    arg_parser.add_argument(
+        "results_dir", type=str, help="Path to the directory the results are saved to"
+    )
+    arg_parser.add_argument(
+        "results_filename", type=str, help="name of the results file"
+    )
+    arg_parser.add_argument(
+        "init_technique", type=str, help="Initialization technique to use"
+    )
+    arg_parser.add_argument(
+        "custom_init_file",
+        type=str,
+        help="Path to the custom initialization file",
+        default=None,
+        required=False,
+    )
+    args = arg_parser.parse_args()
+
+    solver_params = GtsamSolverParams(
+        verbose=True,
+        save_results=True,
+        init_technique=args.init_technique,
+        custom_init_file=args.custom_init_file,
+    )
+
+    fg_filepath = join(args.data_dir, args.pyfg_filename)
+    if fg_filepath.endswith(".pickle"):
+        fg = parse_pickle_file(fg_filepath)
+    elif fg_filepath.endswith(".fg"):
+        fg = parse_efg_file(fg_filepath)
+    else:
+        raise ValueError(f"Unknown file type: {fg_filepath}")
+    print(f"Loaded data: {fg_filepath}")
+
+    results_filepath = join(args.results_dir, args.results_filename)
+    solve_mle_gtsam(fg, solver_params, results_filepath)
