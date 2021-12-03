@@ -1,0 +1,12 @@
+Metadata-Version: 2.1
+Name: ro-slam
+Version: 0.1.0
+Summary: A python range-only SLAM library
+Home-page: https://github.com/MarineRoboticsGroup/qcqp-range-only-slam
+Author: Alan Papalia
+Author-email: apapalia@mit.edu
+License: UNKNOWN
+Platform: UNKNOWN
+Classifier: Typing :: Typed
+
+UNKNOWN
