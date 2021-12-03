@@ -47,10 +47,9 @@ def add_pose_variables(
     translations: Dict[str, np.ndarray] = {}
     rotations: Dict[str, np.ndarray] = {}
 
-    num_poses = len(data.pose_variables[0])
-
     print("Adding pose variables")
     for pose_chain in data.pose_variables:
+        num_poses = len(pose_chain)
         for pose_idx in tqdm.trange(num_poses):
             pose = pose_chain[pose_idx]
 
