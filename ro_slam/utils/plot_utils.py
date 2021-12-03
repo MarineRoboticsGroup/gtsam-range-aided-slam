@@ -74,7 +74,14 @@ def plot_error(
         range_circles: List[CircleIntersection] = [
             CircleIntersection() for _ in range(num_landmarks)
         ]
+
+        cnt = 0
         for pose_idx in range(pose_chain_len):
+            cnt += 1
+            if not cnt % 2 == 0:
+                continue
+            cnt = 0
+
             for pose_chain_idx in range(num_pose_chains):
                 pose = gt_data.pose_variables[pose_chain_idx][pose_idx]
 
@@ -118,7 +125,7 @@ def plot_error(
                     loop_line = None
                     loop_pose = None
 
-            plt.pause(0.1)
+            plt.pause(0.01)
             ax.patches.clear()
             # print(ax.patches)
             # ax.patches = []
@@ -214,7 +221,13 @@ def plot_error_with_custom_init(
         range_circles: List[CircleIntersection] = [
             CircleIntersection() for _ in range(num_landmarks)
         ]
+        cnt = 0
         for pose_idx in range(pose_chain_len):
+            cnt += 1
+            if not cnt % 2 == 0:
+                continue
+            cnt = 0
+
             for pose_chain_idx in range(num_pose_chains):
                 pose = gt_data.pose_variables[pose_chain_idx][pose_idx]
 
@@ -264,7 +277,7 @@ def plot_error_with_custom_init(
                     loop_line = None
                     loop_pose = None
 
-            plt.pause(0.1)
+            plt.pause(0.01)
             ax.patches = []
             if loop_line and loop_pose:
                 loop_line.remove()

@@ -7,6 +7,7 @@ import attr
 
 from ro_slam.utils.matrix_utils import (
     get_theta_from_rotation_matrix,
+    get_rotation_matrix_from_transformation_matrix,
     get_theta_from_transformation_matrix,
     get_translation_from_transformation_matrix,
     _check_rotation_matrix,
@@ -50,6 +51,13 @@ class VariableValues:
     def rotations(self):
         return {
             key: get_theta_from_transformation_matrix(value)
+            for key, value in self.poses.items()
+        }
+
+    @property
+    def rotations_matrix(self):
+        return {
+            key: get_rotation_matrix_from_transformation_matrix(value)
             for key, value in self.poses.items()
         }
 
@@ -195,7 +203,9 @@ def save_results_to_file(
                     trans_solve = translations[pose_key]
                     theta_solve = rotations[pose_key]
                     # TODO: Add actual timestamps
-                    f.write(f"{i} {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n")
+                    f.write(
+                        f"{i} {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n"
+                    )
     else:
         raise ValueError(
             f"The file extension {filepath.split('.')[-1]} is not supported. "
