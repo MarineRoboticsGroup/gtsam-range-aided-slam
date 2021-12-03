@@ -164,7 +164,6 @@ if __name__ == "__main__":
         type=str,
         help="Path to the custom initialization file",
         default=None,
-        required=False,
     )
     args = arg_parser.parse_args()
 
