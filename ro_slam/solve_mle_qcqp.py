@@ -135,8 +135,7 @@ def solve_mle_qcqp(
             results_filepath,
         )
 
-    grid_size_str = re.search(r"\d+_grid", results_filepath).group(0)  # type: ignore
-    grid_size = int(grid_size_str.split("_")[0])
+    grid_size = 1
 
     if solver_params.init_technique == "custom":
         plot_error_with_custom_init(data, solution_vals, custom_vals, grid_size)
