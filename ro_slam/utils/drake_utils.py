@@ -685,7 +685,10 @@ def set_distance_init_valid(
 
 
 def pin_first_pose(
-    model: MathematicalProgram, translation: np.ndarray, rotation: np.ndarray
+    model: MathematicalProgram,
+    translation: np.ndarray,
+    rotation: np.ndarray,
+    data: FactorGraphData,
 ) -> None:
     """
     Pin the first pose of the robot to the origin.
@@ -699,15 +702,13 @@ def pin_first_pose(
     _check_square(rotation)
     assert len(translation) == rotation.shape[0]
 
-    # fix translation to origin
-    add_drake_matrix_equality_constraint(
-        model, translation, np.zeros(translation.shape)
-    )
+    # fix translation to true position
+    true_position = np.asarray(data.pose_variables[0][0].true_position)
+    add_drake_matrix_equality_constraint(model, translation, true_position)
 
     # fix rotation to identity
-    d = rotation.shape[0]
-    I_d = np.eye(d)
-    add_drake_matrix_equality_constraint(model, rotation, I_d)
+    true_rotation = data.pose_variables[0][0].rotation_matrix
+    add_drake_matrix_equality_constraint(model, rotation, true_rotation)
 
 
 def set_orthogonal_constraint(model: MathematicalProgram, mat: np.ndarray) -> None:

@@ -16,6 +16,7 @@ from gtsam.gtsam import (
 )
 
 from py_factor_graph.factor_graph import FactorGraphData
+from py_factor_graph.measurements import PoseMeasurement
 from ro_slam.utils.matrix_utils import (
     _check_square,
     _check_transformation_matrix,
@@ -53,7 +54,7 @@ def add_distances_cost(
         range_noise = noiseModel.Isotropic.Sigma(1, range_measure.stddev)
 
         # If the lankmark is actually secretly a pose, then we use RangeFactorPose2
-        if 'L' not in range_measure.landmark_key:
+        if "L" not in range_measure.landmark_key:
             range_factor = RangeFactorPose2(
                 pose_symbol, landmark_symbol, range_measure.dist, range_noise
             )
@@ -166,17 +167,17 @@ def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
     print("Setting pose initial points by pose composition")
 
     # iterate over measurements and init the rotations
-    for odom_chain in data.odom_measurements:
+    for robot_idx, odom_chain in enumerate(data.odom_measurements):
 
         # initialize the first rotation to the identity matrix
-        curr_pose = np.eye(data.dimension)
+        curr_pose = data.pose_variables[robot_idx][0].transformation_matrix
         first_pose_name = odom_chain[0].base_pose
         init_pose_variable(init_vals, first_pose_name, curr_pose)
 
         for odom_measure in odom_chain:
 
             # update the rotation and initialize the next rotation
-            curr_pose = odom_measure.rotation @ curr_pose
+            curr_pose = odom_measure.transformation_matrix @ curr_pose
             curr_pose_name = odom_measure.to_pose
             init_pose_variable(init_vals, curr_pose_name, curr_pose)
 
@@ -360,7 +361,7 @@ def get_solved_values(
         ),
         total_time=time,
         solved=True,
-        pose_chain_names=data.get_pose_chain_names()
+        pose_chain_names=data.get_pose_chain_names(),
     )
 
 

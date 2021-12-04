@@ -11,17 +11,14 @@ from gtsam.gtsam import (
 
 from py_factor_graph.factor_graph import FactorGraphData
 
-from ro_slam.utils.plot_utils import (
-    plot_error,
-    plot_error_with_custom_init,
-)
+from ro_slam.utils.plot_utils import plot_error
 from ro_slam.utils.solver_utils import (
     GtsamSolverParams,
     SolverResults,
     save_results_to_file,
     load_custom_init_file,
 )
-from ro_slam.utils.matrix_utils import make_transformation_matrix
+from ro_slam.utils.matrix_utils import make_transformation_matrix_from_theta
 
 import ro_slam.utils.gtsam_utils as gt_ut
 
@@ -80,7 +77,9 @@ def solve_mle_gtsam(
         init_rotations = custom_vals.rotations
         init_translations = custom_vals.translations
         init_poses = {
-            key: make_transformation_matrix(init_rotations[key], init_translations[key])
+            key: make_transformation_matrix_from_theta(
+                init_rotations[key], init_translations[key]
+            )
             for key in init_rotations.keys()
         }
         init_landmarks = custom_vals.landmarks
@@ -124,14 +123,14 @@ def solve_mle_gtsam(
 
     # get the grid size to aid in plotting
     grid_size_search = re.search(r"\d+_grid", results_filepath)
-    assert grid_size_search is not None, "Grid size not found in results filepath"
-    grid_size = int(grid_size_search.group(0).split("_")[0])
-
-    print(solution_vals.distances)
+    if grid_size_search is not None:
+        grid_size = int(grid_size_search.group(0).split("_")[0])
+    else:
+        grid_size = 1
 
     # perform plotting
     if solver_params.init_technique == "custom":
-        plot_error_with_custom_init(data, solution_vals, custom_vals, grid_size)
+        plot_error(data, solution_vals, grid_size, custom_vals)
     else:
         # do not use custom init so we just compare to GT pose
         plot_error(data, solution_vals, grid_size)
@@ -182,6 +181,7 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
     print(f"Loaded data: {fg_filepath}")
+    print(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
 
     results_filepath = join(args.results_dir, args.results_filename)
     solve_mle_gtsam(fg, solver_params, results_filepath)

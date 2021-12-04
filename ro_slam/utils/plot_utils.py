@@ -21,6 +21,7 @@ def plot_error(
     data: FactorGraphData,
     solved_results: SolverResults,
     grid_size: int,
+    initial_values: Optional[VariableValues] = None,
     color_dist_circles: bool = False,
 ) -> None:
     """
@@ -30,6 +31,10 @@ def plot_error(
         data (FactorGraphData): the groundtruth data
         solved_results (Dict[str, Dict[str, np.ndarray]]): the solved values of the variables
         grid_size (int): the size of the grid
+        initial_values (VariableValues): the initial values of the variables
+        before solving
+        color_dist_circles (bool, optional): whether to display the circles
+        indicating the distance measurements. Defaults to False.
 
     """
 
@@ -37,6 +42,7 @@ def plot_error(
         ax: plt.Axes,
         gt_data: FactorGraphData,
         solution_data: SolverResults,
+        init_vals: Optional[VariableValues] = None,
         use_arrows: bool = True,
     ):
         """Draws the pose estimates and groundtruth
@@ -71,6 +77,7 @@ def plot_error(
 
         pose_var_plot_obj: List[mpatches.FancyArrow] = []
         pose_sol_plot_obj: List[mpatches.FancyArrow] = []
+        pose_init_val_plot_obj: List[mpatches.FancyArrow] = []
         range_circles: List[CircleIntersection] = [
             CircleIntersection() for _ in range(num_landmarks)
         ]
@@ -91,6 +98,16 @@ def plot_error(
                     solution_data.poses[pose.name],
                 )
                 pose_sol_plot_obj.append(soln_arrow)
+
+                if init_vals is not None:
+                    # draw the initial point used
+                    init_arrow = draw_pose_solution(
+                        ax,
+                        init_vals.poses[pose.name],
+                        color="green",
+                        alpha=0.5,
+                    )
+                    pose_init_val_plot_obj.append(init_arrow)
 
                 # draw arc to inferred landmarks
                 for landmark_idx, landmark in enumerate(gt_data.landmark_variables):
@@ -139,175 +156,22 @@ def plot_error(
             #     pose_sol_plot_obj.pop(0)
             #     pose_var_plot_obj[0].remove()
             #     pose_var_plot_obj.pop(0)
+            #     if init_vals is not None:
+            #         pose_init_val_plot_obj[0].remove()
+            #         pose_init_val_plot_obj.pop(0)
 
         plt.close()
-
-    # if data.num_poses < 50:
-    #     return
 
     # set up plot
     fig, ax = plt.subplots(figsize=(10, 10))
     plt.grid(True)
     plt.xticks(range(grid_size + 1))
     plt.yticks(range(grid_size + 1))
-    ax.set_xlim(-0.5, grid_size + 0.5)
-    ax.set_ylim(-0.5, grid_size + 0.5)
+    ax.set_xlim(data.x_min - 1, data.x_max + 1)
+    ax.set_ylim(data.y_min - 1, data.y_max + 1)
 
     # draw all poses to view static image result
     draw_all_information(ax, data, solved_results)
-
-
-def plot_error_with_custom_init(
-    data: FactorGraphData,
-    solved_results: SolverResults,
-    initial_values: VariableValues,
-    grid_size: int,
-) -> None:
-    """
-    Plots the error for the given data
-
-    Args:
-        data (FactorGraphData): the groundtruth data
-        solved_results (SolverResults): the solved values of the variables
-        initial_values (VariableValues): the initial values of the variables before solving
-        grid_size (int): the size of the grid
-
-    """
-
-    # TODO this function should be refactored to be more general
-    # TODO this function can be broken into many smaller functions
-    #! this function copies a lot of code from "plot_error"
-
-    def draw_all_information(
-        ax: plt.Axes,
-        gt_data: FactorGraphData,
-        solution_results: SolverResults,
-        init_vals: VariableValues,
-        use_arrows: bool = True,
-    ):
-        """Draws the pose estimates and groundtruth
-
-        Args:
-            ax (plt.Axes): the axes to draw on
-            gt_data (FactorGraphData): the groundtruth data
-            solution_data (Dict[str, Dict[str, np.ndarray]]): the solved values of the variables
-        """
-        num_pose_chains = len(gt_data.pose_variables)
-        pose_chain_len = len(gt_data.pose_variables[0])
-        num_landmarks = len(gt_data.landmark_variables)
-
-        range_measures = gt_data.range_measurements
-        range_measure_dict = {
-            measure.association: measure.dist for measure in range_measures
-        }
-
-        true_poses_dict = gt_data.pose_variables_dict
-        loop_closures = gt_data.loop_closure_measurements
-        loop_closure_dict = {
-            x.base_pose: true_poses_dict[x.to_pose] for x in loop_closures
-        }
-
-        # make sure all pose chains same length
-        assert all(len(x) == pose_chain_len for x in gt_data.pose_variables)
-        assert num_pose_chains > 0
-
-        for landmark in gt_data.landmark_variables:
-            draw_landmark_variable(ax, landmark)
-            draw_landmark_solution(ax, solution_results.landmarks[landmark.name])
-
-        pose_var_plot_obj: List[mpatches.FancyArrow] = []
-        pose_sol_plot_obj: List[mpatches.FancyArrow] = []
-        pose_local_sol_plot_obj: List[mpatches.FancyArrow] = []
-        range_circles: List[CircleIntersection] = [
-            CircleIntersection() for _ in range(num_landmarks)
-        ]
-        cnt = 0
-        for pose_idx in range(pose_chain_len):
-            cnt += 1
-            if not cnt % 2 == 0:
-                continue
-            cnt = 0
-
-            for pose_chain_idx in range(num_pose_chains):
-                pose = gt_data.pose_variables[pose_chain_idx][pose_idx]
-
-                # draw inferred solution
-                soln_arrow = draw_pose_solution(
-                    ax,
-                    solution_results.poses[pose.name],
-                    alpha=0.5,
-                )
-                pose_sol_plot_obj.append(soln_arrow)
-
-                # draw the initial point used
-                init_arrow = draw_pose_solution(
-                    ax,
-                    init_vals.poses[pose.name],
-                    color="green",
-                    alpha=0.5,
-                )
-                pose_local_sol_plot_obj.append(init_arrow)
-
-                # draw arc to inferred landmarks
-                for landmark_idx, landmark in enumerate(gt_data.landmark_variables):
-                    soln_pose_center = solution_results.translations[pose.name]
-                    range_key = (pose.name, landmark.name)
-                    if range_key in range_measure_dict:
-                        arc_radius = range_measure_dict[range_key]
-                        dist_circle = Circle(
-                            Point(soln_pose_center[0], soln_pose_center[1]), arc_radius
-                        )
-                        range_circles[landmark_idx].add_circle(dist_circle)
-                    range_circles[landmark_idx].draw_intersection(
-                        ax, color=colors[landmark_idx]
-                    )
-
-                # draw groundtruth solution
-                var_arrow = draw_pose_variable(ax, pose)
-                pose_var_plot_obj.append(var_arrow)
-
-                # if loop closure draw it
-                if pose.name in loop_closure_dict:
-                    loop_line, loop_pose = draw_loop_closure_measurement(
-                        ax,
-                        solution_results.translations[pose.name],
-                        loop_closure_dict[pose.name],
-                    )
-                else:
-                    loop_line = None
-                    loop_pose = None
-
-            plt.pause(0.01)
-            ax.patches = []
-            if loop_line and loop_pose:
-                loop_line.remove()
-                loop_pose.remove()
-
-            # only keep the n most recent arrows
-            num_poses_to_show = 5
-            if pose_idx > num_poses_to_show:
-                pose_sol_plot_obj[0].remove()
-                pose_sol_plot_obj.pop(0)
-                pose_var_plot_obj[0].remove()
-                pose_var_plot_obj.pop(0)
-                pose_local_sol_plot_obj[0].remove()
-                pose_local_sol_plot_obj.pop(0)
-
-        plt.close()
-
-    # if data.num_poses < 50:
-    #     return
-
-    # set up plot
-    fig, ax = plt.subplots(figsize=(10, 10))
-    plt.grid(True)
-    plt.xticks(range(grid_size + 1))
-    plt.yticks(range(grid_size + 1))
-    ax.set_xlim(-0.5, grid_size + 0.5)
-    ax.set_ylim(-0.5, grid_size + 0.5)
-
-    # draw all poses to view static image result
-    draw_all_information(ax, data, solved_results, initial_values)
 
 
 def draw_arrow(

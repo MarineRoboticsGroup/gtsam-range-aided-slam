@@ -7,10 +7,7 @@ from pydrake.solvers.mathematicalprogram import MathematicalProgram  # type: ign
 from py_factor_graph.factor_graph import FactorGraphData
 
 import ro_slam.utils.drake_utils as du
-from ro_slam.utils.plot_utils import (
-    plot_error,
-    plot_error_with_custom_init,
-)
+from ro_slam.utils.plot_utils import plot_error
 from ro_slam.utils.solver_utils import (
     QcqpSolverParams,
     SolverResults,
@@ -75,7 +72,7 @@ def solve_mle_qcqp(
     du.add_loop_closure_cost(model, translations, rotations, data)
 
     # pin first pose at origin
-    du.pin_first_pose(model, translations["A0"], rotations["A0"])
+    du.pin_first_pose(model, translations["A0"], rotations["A0"], data)
 
     if solver_params.init_technique == "gt":
         du.set_rotation_init_gt(model, rotations, data)
@@ -135,10 +132,14 @@ def solve_mle_qcqp(
             results_filepath,
         )
 
-    grid_size = 1
+    grid_size_search = re.search(r"\d+_grid", results_filepath)
+    if grid_size_search is not None:
+        grid_size = int(grid_size_search.group(0).split("_")[0])
+    else:
+        grid_size = 1
 
     if solver_params.init_technique == "custom":
-        plot_error_with_custom_init(data, solution_vals, custom_vals, grid_size)
+        plot_error(data, solution_vals, grid_size, custom_vals)
     else:
         # do not solve local so only print the relaxed solution
         plot_error(data, solution_vals, grid_size)

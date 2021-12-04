@@ -44,6 +44,7 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
     print(f"Loaded data: {fg_filepath}")
+    print(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
 
     results_filepath = join(args.results_dir, args.results_filename)
     solve_mle_qcqp(fg, solver_params, results_filepath)

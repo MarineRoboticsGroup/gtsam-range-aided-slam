@@ -239,7 +239,9 @@ def _check_transformation_matrix(T: np.ndarray, assert_test: bool = True):
         asserted or just a 'soft' test and only prints message if test fails. Defaults to True.
     """
     _check_square(T)
-    assert T.shape[0] == 3, "only considering 2d world right now so matrix must be 3x3"
+    assert (
+        T.shape[0] == 3
+    ), f"only considering 2d world right now so matrix must be 3x3, received {T.shape}"
 
     # check that is rotation matrix in upper left block
     R = T[0:2, 0:2]
