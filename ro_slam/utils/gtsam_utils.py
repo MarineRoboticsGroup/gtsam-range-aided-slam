@@ -313,7 +313,6 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
         pose = pose_chain[0]
         pose_symbol = get_symbol_from_name(pose.name)
         true_pose = Pose2(pose.true_position[0], pose.true_position[1], pose.true_theta)
-        # pose.transformation_matrix
 
         # add the prior factor
         pose_prior = PriorFactorPose2(pose_symbol, true_pose, prior_uncertainty)
