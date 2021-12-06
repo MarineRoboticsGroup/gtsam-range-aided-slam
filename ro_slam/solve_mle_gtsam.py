@@ -9,6 +9,9 @@ from gtsam.gtsam import (
     Values,
 )
 
+from gtsam.utils import plot
+import matplotlib.pyplot as plt
+
 from py_factor_graph.factor_graph import FactorGraphData
 
 from ro_slam.utils.plot_utils import plot_error
@@ -59,7 +62,6 @@ def solve_mle_gtsam(
     # pin first pose at origin
     gt_ut.pin_first_pose(factor_graph, data)
 
-    # choose an initialization strategy
     if solver_params.init_technique == "gt":
         gt_ut.set_pose_init_gt(initial_values, data)
         gt_ut.set_landmark_init_gt(initial_values, data)
@@ -85,6 +87,12 @@ def solve_mle_gtsam(
         init_landmarks = custom_vals.landmarks
         gt_ut.set_pose_init_custom(initial_values, init_poses)
         gt_ut.set_landmark_init_custom(initial_values, init_landmarks)
+
+    # Visualize initial values
+    # print(initial_values)
+    plot.plot_trajectory(1, initial_values, scale=0.1)
+    plot.set_axes_equal(1)
+    plt.show()
 
     # perform optimization
     print("Initializing solver...")
