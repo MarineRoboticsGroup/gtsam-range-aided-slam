@@ -297,13 +297,6 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
         data (FactorGraphData): The data to use to pin the pose
 
     """
-
-    # get the first pose variable
-    pose = data.pose_variables[0][0]
-    pose_symbol = get_symbol_from_name(pose.name)
-    true_pose = Pose2(pose.true_position[0], pose.true_position[1], pose.true_theta)
-    # pose.transformation_matrix
-
     # build the prior noise model
     x_stddev = 0.1
     y_stddev = 0.1
@@ -312,9 +305,19 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
         np.array([x_stddev, y_stddev, theta_stddev])
     )
 
-    # add the prior factor
-    pose_prior = PriorFactorPose2(pose_symbol, true_pose, prior_uncertainty)
-    graph.push_back(pose_prior)
+    for pose_chain in data.pose_variables:
+        if len(pose_chain) == 0:
+            continue
+
+        # get the first pose variable
+        pose = pose_chain[0]
+        pose_symbol = get_symbol_from_name(pose.name)
+        true_pose = Pose2(pose.true_position[0], pose.true_position[1], pose.true_theta)
+        # pose.transformation_matrix
+
+        # add the prior factor
+        pose_prior = PriorFactorPose2(pose_symbol, true_pose, prior_uncertainty)
+        graph.push_back(pose_prior)
 
 
 ##### Misc
