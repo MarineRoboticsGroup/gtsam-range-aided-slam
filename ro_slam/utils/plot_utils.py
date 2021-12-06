@@ -53,7 +53,9 @@ def plot_error(
             solution_results (SolverResults): the solved values of the variables
         """
         num_pose_chains = len(gt_data.pose_variables)
-        pose_chain_len = len(gt_data.pose_variables[0])
+        max_pose_chain_length = max(
+            [len(pose_chain) for pose_chain in gt_data.pose_variables]
+        )
         num_landmarks = len(gt_data.landmark_variables)
 
         range_measures = gt_data.range_measurements
@@ -68,7 +70,6 @@ def plot_error(
         }
 
         # make sure all pose chains same length
-        assert all(len(x) == pose_chain_len for x in gt_data.pose_variables)
         assert num_pose_chains > 0
 
         for landmark in gt_data.landmark_variables:
@@ -83,14 +84,25 @@ def plot_error(
         ]
 
         cnt = 0
-        for pose_idx in range(pose_chain_len):
-            cnt += 1
-            if not cnt % 2 == 0:
+        num_frames_skip = 2
+        for pose_idx in range(max_pose_chain_length):
+            if cnt % num_frames_skip == 0:
+                cnt = 0
+            else:
+                cnt += 1
                 continue
-            cnt = 0
 
-            for pose_chain_idx in range(num_pose_chains):
-                pose = gt_data.pose_variables[pose_chain_idx][pose_idx]
+            for pose_chain in gt_data.pose_variables:
+
+                if len(pose_chain) == 0:
+                    continue
+
+                # if past end of pose chain just grab last pose, otherwise use
+                # next in chain
+                if len(pose_chain) <= pose_idx:
+                    pose = pose_chain[-1]
+                else:
+                    pose = pose_chain[pose_idx]
 
                 # draw inferred solution
                 soln_arrow = draw_pose_solution(
@@ -142,7 +154,7 @@ def plot_error(
                     loop_line = None
                     loop_pose = None
 
-            plt.pause(0.01)
+            # plt.pause(0.01)
             ax.patches.clear()
             # print(ax.patches)
             # ax.patches = []
