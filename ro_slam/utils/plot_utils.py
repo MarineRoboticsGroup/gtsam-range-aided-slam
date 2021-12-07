@@ -52,7 +52,7 @@ def plot_error(
             gt_data (FactorGraphData): the groundtruth data
             solution_results (SolverResults): the solved values of the variables
         """
-        num_pose_chains = len(gt_data.pose_variables)
+        assert gt_data.num_poses > 0
         max_pose_chain_length = max(
             [len(pose_chain) for pose_chain in gt_data.pose_variables]
         )
@@ -68,9 +68,6 @@ def plot_error(
         loop_closure_dict = {
             x.base_pose: true_poses_dict[x.to_pose] for x in loop_closures
         }
-
-        # make sure all pose chains same length
-        assert num_pose_chains > 0
 
         for landmark in gt_data.landmark_variables:
             draw_landmark_variable(ax, landmark)
