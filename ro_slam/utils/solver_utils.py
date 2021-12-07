@@ -202,6 +202,8 @@ def save_to_tum(solved_results: SolverResults, filepath: str, strip_extension: b
     ), "Pose_chain_names must be provided for multi robot trajectories"
     # TODO: Add support for exporting without pose_chain_names
     for pose_chain in solved_results.pose_chain_names:
+        if len(pose_chain) == 0:
+            continue
         pose_chain_letter = pose_chain[0][0]  # Get first letter of first pose in chain
 
         # Removes extension from filepath to add tum extension

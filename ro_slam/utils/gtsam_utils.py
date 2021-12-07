@@ -168,7 +168,8 @@ def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
 
     # iterate over measurements and init the rotations
     for robot_idx, odom_chain in enumerate(data.odom_measurements):
-
+        if len(odom_chain) == 0:
+            continue   # Skip empty pose chains
         # initialize the first rotation to the identity matrix
         curr_pose = data.pose_variables[robot_idx][0].transformation_matrix
         first_pose_name = odom_chain[0].base_pose
