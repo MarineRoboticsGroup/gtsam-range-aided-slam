@@ -178,7 +178,7 @@ def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
         for odom_measure in odom_chain:
 
             # update the rotation and initialize the next rotation
-            curr_pose = odom_measure.transformation_matrix @ curr_pose
+            curr_pose = curr_pose @ odom_measure.transformation_matrix
             curr_pose_name = odom_measure.to_pose
             init_pose_variable(init_vals, curr_pose_name, curr_pose)
 
