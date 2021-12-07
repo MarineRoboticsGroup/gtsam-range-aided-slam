@@ -154,7 +154,7 @@ def plot_error(
                     loop_line = None
                     loop_pose = None
 
-            # plt.pause(0.01)
+            plt.pause(0.001)
             ax.patches.clear()
             # print(ax.patches)
             # ax.patches = []
