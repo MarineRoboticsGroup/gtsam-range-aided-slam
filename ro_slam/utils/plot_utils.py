@@ -58,11 +58,6 @@ def plot_error(
         )
         num_landmarks = len(gt_data.landmark_variables)
 
-        range_measures = gt_data.range_measurements
-        range_measure_dict = {
-            measure.association: measure.dist for measure in range_measures
-        }
-
         true_poses_dict = gt_data.pose_variables_dict
         loop_closures = gt_data.loop_closure_measurements
         loop_closure_dict = {
@@ -79,6 +74,10 @@ def plot_error(
         range_circles: List[CircleIntersection] = [
             CircleIntersection() for _ in range(num_landmarks)
         ]
+        range_measures_dict = gt_data.range_measures_dict
+
+        # draw range measurements
+        range_measure_plot_lines: List[mlines.Line2D] = []
 
         cnt = 0
         num_frames_skip = 2
@@ -118,13 +117,27 @@ def plot_error(
                     )
                     pose_init_val_plot_obj.append(init_arrow)
 
+                if pose.name in range_measures_dict:
+                    cur_range_measures = range_measures_dict[pose.name]
+
+                    for range_measure in cur_range_measures:
+                        range_var1, range_var2 = range_measure.association
+                        x1, y1 = solution_data.translations[range_var1]
+                        if "L" == range_var2[0]:
+                            x2, y2 = solution_data.landmarks[range_var2]
+                        else:
+                            x2, y2 = solution_data.translations[range_var2]
+
+                        new_line = draw_line(ax, x1, y1, x2, y2, color="red")
+                        range_measure_plot_lines.append(new_line)
+
                 # draw arc to inferred landmarks
                 for landmark_idx, landmark in enumerate(gt_data.landmark_variables):
                     soln_pose_center = solution_data.translations[pose.name]
                     soln_landmark_center = solution_data.landmarks[landmark.name]
                     range_key = (pose.name, landmark.name)
-                    if color_dist_circles and range_key in range_measure_dict:
-                        arc_radius = range_measure_dict[range_key]
+                    if color_dist_circles and range_key in range_measures_dict:
+                        arc_radius = range_measures_dict[range_key]
                         dist_circle = Circle(
                             Point(soln_pose_center[0], soln_pose_center[1]), arc_radius
                         )
@@ -158,6 +171,9 @@ def plot_error(
             # if loop_line and loop_pose:
             #     loop_line.remove()
             #     loop_pose.remove()
+
+            while len(range_measure_plot_lines) > 0:
+                range_measure_plot_lines.pop().remove()
 
             # if pose_idx > 5:
             #     # ax.remove(pose_sol_plot_obj[0])

@@ -71,8 +71,16 @@ def solve_mle_qcqp(
     du.add_odom_cost(model, translations, rotations, data)
     du.add_loop_closure_cost(model, translations, rotations, data)
 
-    # pin first pose at origin
-    du.pin_first_pose(model, translations["A0"], rotations["A0"], data)
+    # pin first pose based on data
+    # robot_idx = 1
+    # assert robot_idx < len(data.pose_variables)
+    # robot_char = chr(ord("A") + robot_idx)
+    # var_name = f"{robot_char}0"
+    du.pin_first_pose(model, translations["A0"], rotations["A0"], data, 0)
+    du.pin_first_pose(model, translations["B0"], rotations["B0"], data, 1)
+    du.pin_first_pose(model, translations["C0"], rotations["C0"], data, 2)
+
+    du.pin_first_landmark(model, landmarks["L0"], data)
 
     if solver_params.init_technique == "gt":
         du.set_rotation_init_gt(model, rotations, data)
@@ -110,6 +118,10 @@ def solve_mle_qcqp(
         solver = du.get_drake_solver(solver_params.solver)
         if solver_params.verbose:
             du.set_drake_solver_verbose(model, solver)
+
+        if solver_params.solver == "gurobi":
+            model.SetSolverOption(solver.solver_id(), "BarQCPConvTol", 1e-8)
+            model.SetSolverOption(solver.solver_id(), "BarConvTol", 1e-8)
 
         result = solver.Solve(model)
     except Exception as e:

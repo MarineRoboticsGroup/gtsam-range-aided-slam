@@ -689,6 +689,7 @@ def pin_first_pose(
     translation: np.ndarray,
     rotation: np.ndarray,
     data: FactorGraphData,
+    robot_idx: int,
 ) -> None:
     """
     Pin the first pose of the robot to the origin.
@@ -697,18 +698,40 @@ def pin_first_pose(
         model (MathematicalProgram): The model to pin the pose in
         translation (np.ndarray): The translation variable to pin
         rotation (np.ndarray): The rotation variable to pin
-
+        data (FactorGraphData): The factor graph data to use to pin the pose
+        robot_idx (int): The robot index to pin the pose of
     """
     _check_square(rotation)
     assert len(translation) == rotation.shape[0]
+    assert 0 <= robot_idx < len(data.pose_variables)
 
     # fix translation to true position
-    true_position = np.asarray(data.pose_variables[0][0].true_position)
+    true_position = np.asarray(data.pose_variables[robot_idx][0].true_position)
     add_drake_matrix_equality_constraint(model, translation, true_position)
 
     # fix rotation to identity
-    true_rotation = data.pose_variables[0][0].rotation_matrix
+    true_rotation = data.pose_variables[robot_idx][0].rotation_matrix
     add_drake_matrix_equality_constraint(model, rotation, true_rotation)
+
+
+def pin_first_landmark(
+    model: MathematicalProgram,
+    landmark_position: np.ndarray,
+    data: FactorGraphData,
+) -> None:
+    """
+    Pin the first pose of the robot to the origin.
+
+    Args:
+        model (MathematicalProgram): The model to pin the pose in
+        landmark_position (np.ndarray): The translation variable to pin
+        rotation (np.ndarray): The rotation variable to pin
+        data (FactorGraphData): The factor graph data to use to pin the pose
+        robot_idx (int): The robot index to pin the pose of
+    """
+    # fix landmark_position to true position
+    true_position = np.asarray(data.landmark_variables[0].true_position)
+    add_drake_matrix_equality_constraint(model, landmark_position, true_position)
 
 
 def set_orthogonal_constraint(model: MathematicalProgram, mat: np.ndarray) -> None:
