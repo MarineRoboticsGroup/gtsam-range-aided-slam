@@ -67,7 +67,7 @@ def solve_mle_gtsam(
         gt_ut.set_landmark_init_gt(initial_values, data)
     elif solver_params.init_technique == "compose":
         gt_ut.set_pose_init_compose(initial_values, data)
-        gt_ut.set_landmark_init_random(initial_values, data)
+        gt_ut.set_landmark_init_gt(initial_values, data)
     elif solver_params.init_technique == "random":
         gt_ut.set_pose_init_random(initial_values, data)
         gt_ut.set_landmark_init_random(initial_values, data)
