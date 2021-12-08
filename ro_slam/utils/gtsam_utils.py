@@ -307,9 +307,7 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
     prior_uncertainty = noiseModel.Diagonal.Sigmas(
         np.array([x_stddev, y_stddev, theta_stddev])
     )
-    prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(
-        np.array([x_stddev, y_stddev])
-    )
+    prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(np.array([x_stddev, y_stddev]))
 
     for pose_chain in data.pose_variables:
         if len(pose_chain) == 0:
@@ -324,13 +322,18 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
         pose_prior = PriorFactorPose2(pose_symbol, true_pose, prior_uncertainty)
         graph.push_back(pose_prior)
 
-        break # TODO: Pin only the first pose, remove if not needed
-    
+        break  # TODO: Pin only the first pose, remove if not needed
+
     for landmark_var in data.landmark_variables:
         landmark_symbol = get_symbol_from_name(landmark_var.name)
-        landmark_point = np.array([landmark_var.true_position[0], landmark_var.true_position[1]])
-        landmark_prior = PriorFactorPoint2(landmark_symbol, landmark_point, prior_pt2_uncertainty)
+        landmark_point = np.array(
+            [landmark_var.true_position[0], landmark_var.true_position[1]]
+        )
+        landmark_prior = PriorFactorPoint2(
+            landmark_symbol, landmark_point, prior_pt2_uncertainty
+        )
         graph.push_back(landmark_prior)
+
 
 ##### Misc
 
