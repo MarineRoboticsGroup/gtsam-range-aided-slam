@@ -17,6 +17,8 @@ def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
     _check_rotation_matrix(mat, assert_test=False)
     S, D, Vh = la.svd(mat)
     R_so = S @ Vh
+    if np.linalg.det(R_so) < 0:
+        R_so = S @ np.diag([1, -1]) @ Vh
     _check_rotation_matrix(R_so, assert_test=True)
     return R_so
 
@@ -190,6 +192,9 @@ def _check_rotation_matrix(R: np.ndarray, assert_test: bool = False):
     if not has_correct_det:
         # print(f"R det != 1: {np.linalg.det(R)}")
         if assert_test:
+            print(la.svd(R))
+            print(la.eigvals(R))
+            print(R)
             raise ValueError(f"R det incorrect {np.linalg.det(R)}")
 
 

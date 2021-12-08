@@ -14,7 +14,7 @@ if __name__ == "__main__":
         save_results=True,
         use_socp_relax=True,
         use_orthogonal_constraint=False,
-        init_technique="none",
+        init_technique="gt",
         custom_init_file=None,
     )
 
