@@ -174,6 +174,14 @@ def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
         # initialize the first rotation to the identity matrix
         curr_pose = data.pose_variables[robot_idx][0].transformation_matrix
         first_pose_name = odom_chain[0].base_pose
+
+        # rand_theta = (1)
+        rand_x = 1
+        rand_y = 1
+        rand_trans = np.eye(3)
+        # rand_trans[:2,:2] = get_rotation_matrix_from_theta(rand_theta)
+        rand_trans[:2, 2] = rand_x, rand_y
+        curr_pose = curr_pose @ rand_trans
         init_pose_variable(init_vals, first_pose_name, curr_pose)
 
         for odom_measure in odom_chain:
