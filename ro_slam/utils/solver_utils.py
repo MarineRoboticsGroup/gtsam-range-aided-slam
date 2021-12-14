@@ -1,6 +1,7 @@
 from typing import Union, Dict, Optional, Tuple, List
 import pickle
-from os.path import isfile
+from os.path import isfile, dirname, isdir
+from os import makedirs
 import numpy as np
 import attr
 
@@ -31,7 +32,9 @@ class GtsamSolverParams:
     verbose: bool = attr.ib()
     save_results: bool = attr.ib()
     init_technique: str = attr.ib()
-    custom_init_file: Optional[str] = attr.ib()
+    custom_init_file: Optional[str] = attr.ib(default=None)
+    init_translation_perturbation: Optional[float] = attr.ib(default=None)
+    init_rotation_perturbation: Optional[float] = attr.ib(default=None)
 
 
 @attr.s(frozen=True)
@@ -140,7 +143,9 @@ def save_results_to_file(
         solved_results (Dict[str, Dict[str, np.ndarray]]): the solved values of the variables
         filepath (str): the path to save the results to
     """
-    allowed_extensions = [".pickle", ".txt"]
+    data_dir = dirname(filepath)
+    if not isdir(data_dir):
+        makedirs(data_dir)
 
     if filepath.endswith(".pickle"):
         pickle_file = open(filepath, "wb")
@@ -196,7 +201,20 @@ def save_results_to_file(
     print(f"Results saved to: {filepath}\n")
 
 
-def save_to_tum(solved_results: SolverResults, filepath: str, strip_extension: bool = False):
+def save_to_tum(
+    solved_results: SolverResults, filepath: str, strip_extension: bool = False
+):
+    """Saves a given set of solver results to a number of TUM files, with one
+    for each pose chain in the results.
+
+    Args:
+        solved_results (SolverResults): [description]
+        filepath (str): the path to save the results to. The final files will
+        have the pose chain letter appended to the end to indicate which pose chain.
+        strip_extension (bool, optional): Whether to strip the file extension
+        and replace with ".tum". This should be set to true if the file
+        extension is not already ".tum". Defaults to False.
+    """
     assert (
         solved_results.pose_chain_names is not None
     ), "Pose_chain_names must be provided for multi robot trajectories"
@@ -205,12 +223,22 @@ def save_to_tum(solved_results: SolverResults, filepath: str, strip_extension: b
         if len(pose_chain) == 0:
             continue
         pose_chain_letter = pose_chain[0][0]  # Get first letter of first pose in chain
+        assert (
+            pose_chain_letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        ), "Pose chain letter must be uppercase letter"
 
         # Removes extension from filepath to add tum extension
         if strip_extension:
             filepath = filepath.split(".")[0] + ".tum"
 
+        assert filepath.endswith(".tum"), "File extension must be .tum"
         modified_path = filepath.replace(".tum", f"_{pose_chain_letter}.tum")
+
+        # if file already exists we won't write over it
+        if isfile(modified_path):
+            print(f"{modified_path} already exists, skipping")
+            continue
+
         with open(modified_path, "w") as f:
             translations = solved_results.translations
             rotations = solved_results.rotations
@@ -221,6 +249,7 @@ def save_to_tum(solved_results: SolverResults, filepath: str, strip_extension: b
                 f.write(
                     f"{i} {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n"
                 )
+
 
 def check_rotations(result, rotations: Dict[str, np.ndarray]):
     """

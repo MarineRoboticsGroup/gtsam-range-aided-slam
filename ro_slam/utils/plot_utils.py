@@ -1,5 +1,6 @@
 from typing import Dict, Tuple, List, Optional
 import numpy as np
+import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
@@ -20,7 +21,6 @@ colors = ["red", "green", "blue", "orange", "purple", "black", "cyan"]
 def plot_error(
     data: FactorGraphData,
     solved_results: SolverResults,
-    grid_size: int,
     initial_values: Optional[VariableValues] = None,
     color_dist_circles: bool = False,
 ) -> None:
@@ -30,7 +30,6 @@ def plot_error(
     Args:
         data (FactorGraphData): the groundtruth data
         solved_results (Dict[str, Dict[str, np.ndarray]]): the solved values of the variables
-        grid_size (int): the size of the grid
         initial_values (VariableValues): the initial values of the variables
         before solving
         color_dist_circles (bool, optional): whether to display the circles
@@ -189,9 +188,6 @@ def plot_error(
 
     # set up plot
     fig, ax = plt.subplots(figsize=(10, 10))
-    plt.grid(True)
-    plt.xticks(range(grid_size + 1))
-    plt.yticks(range(grid_size + 1))
     ax.set_xlim(data.x_min - 1, data.x_max + 1)
     ax.set_ylim(data.y_min - 1, data.y_max + 1)
 
@@ -204,8 +200,6 @@ def draw_arrow(
     x: float,
     y: float,
     theta: float,
-    quiver_length: float = 0.1,
-    quiver_width: float = 0.01,
     color: str = "black",
 ) -> mpatches.FancyArrow:
     """Draws an arrow on the given axes
@@ -222,8 +216,13 @@ def draw_arrow(
     Returns:
         mpatches.FancyArrow: the arrow
     """
-    dx = quiver_length * np.cos(theta)
-    dy = quiver_length * np.sin(theta)
+    plot_x_range = ax.get_xlim()[1] - ax.get_xlim()[0]
+    plot_y_range = ax.get_ylim()[1] - ax.get_ylim()[0]
+
+    quiver_length: float = max(plot_x_range, plot_y_range) / 20
+    quiver_width: float = max(plot_x_range, plot_y_range) / 100
+    dx = quiver_length * math.cos(theta)
+    dy = quiver_length * math.sin(theta)
     return ax.arrow(
         x,
         y,

@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple, Union, Dict
+from typing import List, Tuple, Union, Dict, Optional
 import tqdm  # type: ignore
 import re
 
@@ -28,6 +28,7 @@ from ro_slam.utils.matrix_utils import (
     get_theta_from_rotation_matrix_so_projection,
     get_theta_from_transformation_matrix,
     get_translation_from_transformation_matrix,
+    apply_transformation_matrix_perturbation,
 )
 from ro_slam.utils.solver_utils import SolverResults, VariableValues
 
@@ -158,12 +159,22 @@ def init_landmark_variable(init_vals: Values, lmk_key: str, val: np.ndarray):
     init_vals.insert(landmark_symbol, val)
 
 
-def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
+def set_pose_init_compose(
+    init_vals: Values,
+    data: FactorGraphData,
+    gt_start: bool = False,
+    perturb_magnitude: Optional[float] = None,
+    perturb_rotation: Optional[float] = None,
+) -> None:
     """initializes the rotations by composing the rotations along the odometry chain
 
     Args:
         rotations (List[np.ndarray]): the rotation variables to initialize
         data (FactorGraphData): the data to use to initialize the rotations
+        gt_start (bool, optional): whether to use the ground truth start pose.
+        Otherwise, will use random start pose
+        perturb_magnitude (float, optional): the magnitude of the perturbation
+        perturb_rotation (float, optional): the magnitude of the perturbation
     """
     print("Setting pose initial points by pose composition")
 
@@ -172,16 +183,18 @@ def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
         if len(odom_chain) == 0:
             continue  # Skip empty pose chains
         # initialize the first rotation to the identity matrix
-        curr_pose = data.pose_variables[robot_idx][0].transformation_matrix
+        if gt_start:
+            curr_pose = data.pose_variables[robot_idx][0].transformation_matrix
+        else:
+            curr_pose = get_random_transformation_matrix()
         first_pose_name = odom_chain[0].base_pose
 
-        # rand_theta = (1)
-        rand_x = 1
-        rand_y = 1
-        rand_trans = np.eye(3)
-        # rand_trans[:2,:2] = get_rotation_matrix_from_theta(rand_theta)
-        rand_trans[:2, 2] = rand_x, rand_y
-        curr_pose = curr_pose @ rand_trans
+        # if we have perturbation parameters, then we perturb the first pose
+        if perturb_magnitude is not None and perturb_rotation is not None:
+            curr_pose = apply_transformation_matrix_perturbation(
+                curr_pose, perturb_magnitude, perturb_rotation
+            )
+
         init_pose_variable(init_vals, first_pose_name, curr_pose)
 
         for odom_measure in odom_chain:
@@ -195,25 +208,37 @@ def set_pose_init_compose(init_vals: Values, data: FactorGraphData) -> None:
 def set_pose_init_gt(
     init_vals: Values,
     data: FactorGraphData,
+    perturb_magnitude: Optional[float] = None,
+    perturb_rotation: Optional[float] = None,
 ) -> None:
-    """Initialize the translation and rotation variables to the ground truth translation
-    variables.
+    """Initialize the translation and rotation variables to the ground truth
+    translation values.
 
     Args:
         graph (NonlinearFactorGraph): the graph to initialize the variables in
         rotations (Dict[str, np.ndarray]): the rotation variables to initialize
         data (FactorGraphData): the data to use to initialize the variables
+        perturb_magnitude (Optional[float]): the magnitude of the perturbation
+        to apply
+        perturb_rotation (Optional[float]): the rotation of the perturbation
     """
     print("Setting pose initial points to ground truth")
     for pose_chain in data.pose_variables:
-        for pose_var in pose_chain:
+        for pose_idx, pose_var in enumerate(pose_chain):
             pose_key = pose_var.name
             true_pose = pose_var.transformation_matrix
+
+            # if we have perturbation parameters, then we perturb the first pose
+            if perturb_magnitude is not None and perturb_rotation is not None:
+                true_pose = apply_transformation_matrix_perturbation(
+                    true_pose, perturb_magnitude, perturb_rotation
+                )
+
             init_pose_variable(init_vals, pose_key, true_pose)
 
 
 def set_pose_init_random(init_vals: Values, data: FactorGraphData) -> None:
-    """Initializes the rotation variables to random.
+    """Initializes the pose variables to random.
 
     Args:
         graph (NonlinearFactorGraph): the graph to initialize the variables in
@@ -332,6 +357,21 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
 
         break  # TODO: Pin only the first pose, remove if not needed
 
+
+def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
+    """
+    Pin the first pose of the robot to its true pose.
+    Also pins the landmark to the first pose.
+
+    Args:
+        graph (NonlinearFactorGraph): The graph to pin the pose in
+        data (FactorGraphData): The data to use to pin the pose
+
+    """
+    x_stddev = 0.1
+    y_stddev = 0.1
+    prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(np.array([x_stddev, y_stddev]))
+
     for landmark_var in data.landmark_variables:
         landmark_symbol = get_symbol_from_name(landmark_var.name)
         landmark_point = np.array(
@@ -341,6 +381,8 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
             landmark_symbol, landmark_point, prior_pt2_uncertainty
         )
         graph.push_back(landmark_prior)
+
+        break  # TODO: Pin only the first landmark, remove if not needed
 
 
 ##### Misc

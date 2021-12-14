@@ -72,13 +72,9 @@ def solve_mle_qcqp(
     du.add_loop_closure_cost(model, translations, rotations, data)
 
     # pin first pose based on data
-    # robot_idx = 1
-    # assert robot_idx < len(data.pose_variables)
-    # robot_char = chr(ord("A") + robot_idx)
-    # var_name = f"{robot_char}0"
     du.pin_first_pose(model, translations["A0"], rotations["A0"], data, 0)
-    du.pin_first_pose(model, translations["B0"], rotations["B0"], data, 1)
-    du.pin_first_pose(model, translations["C0"], rotations["C0"], data, 2)
+    # du.pin_first_pose(model, translations["B0"], rotations["B0"], data, 1)
+    # du.pin_first_pose(model, translations["C0"], rotations["C0"], data, 2)
 
     du.pin_first_landmark(model, landmarks["L0"], data)
 
@@ -120,8 +116,10 @@ def solve_mle_qcqp(
             du.set_drake_solver_verbose(model, solver)
 
         if solver_params.solver == "gurobi":
-            model.SetSolverOption(solver.solver_id(), "BarQCPConvTol", 1e-8)
-            model.SetSolverOption(solver.solver_id(), "BarConvTol", 1e-8)
+            # model.SetSolverOption(solver.solver_id(), "BarQCPConvTol", 1e-8)
+            # model.SetSolverOption(solver.solver_id(), "BarConvTol", 1e-8)
+            # model.SetSolverOption(solver.solver_id(), "BarHomogeneous", 1)
+            pass
 
         result = solver.Solve(model)
     except Exception as e:
@@ -133,7 +131,13 @@ def solve_mle_qcqp(
     print(f"Solver success: {result.is_success()}")
 
     solution_vals = du.get_solved_values(
-        result, tot_time, translations, rotations, landmarks, distances
+        result,
+        tot_time,
+        translations,
+        rotations,
+        landmarks,
+        distances,
+        data.get_pose_chain_names(),
     )
 
     if solver_params.save_results:
@@ -150,8 +154,8 @@ def solve_mle_qcqp(
     else:
         grid_size = 1
 
-    if solver_params.init_technique == "custom":
-        plot_error(data, solution_vals, grid_size, custom_vals)
-    else:
-        # do not solve local so only print the relaxed solution
-        plot_error(data, solution_vals, grid_size)
+    # if solver_params.init_technique == "custom":
+    #     plot_error(data, solution_vals, grid_size, custom_vals)
+    # else:
+    #     # do not solve local so only print the relaxed solution
+    #     plot_error(data, solution_vals, grid_size)

@@ -1,6 +1,41 @@
 import numpy as np
 import scipy.linalg as la  # type: ignore
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+
+
+def apply_transformation_matrix_perturbation(
+    transformation_matrix,
+    perturb_magnitude: Optional[float],
+    perturb_rotation: Optional[float],
+) -> np.ndarray:
+    """Applies a random SE(2) perturbation to a transformation matrix
+
+    Args:
+        transformation_matrix ([type]): [description]
+        perturb_magnitude (Optional[float]): [description]
+        perturb_rotation (Optional[float]): [description]
+
+    Returns:
+        np.ndarray: [description]
+    """
+    _check_transformation_matrix(transformation_matrix)
+
+    # get the x/y perturbation
+    perturb_direction = np.random.uniform(0, 2 * np.pi)
+    perturb_x = np.cos(perturb_direction) * perturb_magnitude
+    perturb_y = np.sin(perturb_direction) * perturb_magnitude
+
+    # get the rotation perturbation
+    perturb_theta = np.random.choice([-1, 1]) * perturb_rotation
+
+    # compose the perturbation into a transformation matrix
+    rand_trans = np.eye(3)
+    rand_trans[:2, :2] = get_rotation_matrix_from_theta(perturb_theta)
+    rand_trans[:2, 2] = perturb_x, perturb_y
+    _check_transformation_matrix(rand_trans)
+
+    # perturb curr pose
+    return transformation_matrix @ rand_trans
 
 
 def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
@@ -196,6 +231,8 @@ def _check_rotation_matrix(R: np.ndarray, assert_test: bool = False):
             print(la.eigvals(R))
             print(R)
             raise ValueError(f"R det incorrect {np.linalg.det(R)}")
+    # print(f"R is a rotation matrix {R}")
+    # print()
 
 
 def _check_square(mat: np.ndarray):

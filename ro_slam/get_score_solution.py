@@ -14,7 +14,7 @@ if __name__ == "__main__":
         save_results=True,
         use_socp_relax=True,
         use_orthogonal_constraint=False,
-        init_technique="gt",
+        init_technique="random",
         custom_init_file=None,
     )
 
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
     print(f"Loaded data: {fg_filepath}")
-    print(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
+    fg.print_summary()
 
     # check that the measurements are all good
     # assert fg.only_good_measurements()

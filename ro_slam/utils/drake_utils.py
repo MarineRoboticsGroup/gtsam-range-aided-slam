@@ -851,6 +851,7 @@ def get_solved_values(
     rotations: Dict[str, np.ndarray],
     landmarks: Dict[str, np.ndarray],
     distances: Dict[Tuple[str, str], np.ndarray],
+    pose_chain_names: List[str],
 ) -> SolverResults:
     """
     Returns the solved values from the result
@@ -893,6 +894,7 @@ def get_solved_values(
         ),
         total_time=time,
         solved=result.is_success(),
+        pose_chain_names=pose_chain_names,
     )
 
 

@@ -1,5 +1,6 @@
 import re
 import time
+import numpy as np
 
 from gtsam.gtsam import (
     NonlinearFactorGraph,
@@ -57,16 +58,28 @@ def solve_mle_gtsam(
     # form objective function
     gt_ut.add_distances_cost(factor_graph, data)
     gt_ut.add_odom_cost(factor_graph, data)
-    # gt_ut.add_loop_closure_cost(factor_graph, data)
+    gt_ut.add_loop_closure_cost(factor_graph, data)
 
     # pin first pose at origin
     gt_ut.pin_first_pose(factor_graph, data)
+    gt_ut.pin_first_landmark(factor_graph, data)
 
     if solver_params.init_technique == "gt":
-        gt_ut.set_pose_init_gt(initial_values, data)
+        gt_ut.set_pose_init_gt(
+            initial_values,
+            data,
+            solver_params.init_translation_perturbation,
+            solver_params.init_rotation_perturbation,
+        )
         gt_ut.set_landmark_init_gt(initial_values, data)
     elif solver_params.init_technique == "compose":
-        gt_ut.set_pose_init_compose(initial_values, data)
+        gt_ut.set_pose_init_compose(
+            initial_values,
+            data,
+            gt_start=False,
+            perturb_magnitude=solver_params.init_translation_perturbation,
+            perturb_rotation=solver_params.init_rotation_perturbation,
+        )
         gt_ut.set_landmark_init_gt(initial_values, data)
     elif solver_params.init_technique == "random":
         gt_ut.set_pose_init_random(initial_values, data)
@@ -90,9 +103,9 @@ def solve_mle_gtsam(
 
     # Visualize initial values
     # print(initial_values)
-    plot.plot_trajectory(1, initial_values, scale=0.1)
-    plot.set_axes_equal(1)
-    plt.show()
+    # plot.plot_trajectory(1, initial_values, scale=0.1)
+    # plot.set_axes_equal(1)
+    # plt.show()
 
     # perform optimization
     print("Initializing solver...")
@@ -137,16 +150,16 @@ def solve_mle_gtsam(
         grid_size = 1
 
     # perform plotting
-    if solver_params.init_technique == "custom":
-        plot_error(data, solution_vals, grid_size, custom_vals)
-    else:
-        # do not use custom init so we just compare to GT pose
-        plot_error(data, solution_vals, grid_size)
+    # if solver_params.init_technique == "custom":
+    #     plot_error(data, solution_vals, grid_size, custom_vals)
+    # else:
+    #     # do not use custom init so we just compare to GT pose
+    #     plot_error(data, solution_vals, grid_size)
 
 
 if __name__ == "__main__":
     import argparse
-    from os.path import join
+    from os.path import join, isfile
     from py_factor_graph.parse_factor_graph import (
         parse_efg_file,
         parse_pickle_file,
@@ -174,13 +187,6 @@ if __name__ == "__main__":
     )
     args = arg_parser.parse_args()
 
-    solver_params = GtsamSolverParams(
-        verbose=True,
-        save_results=True,
-        init_technique=args.init_technique,
-        custom_init_file=args.custom_init_file,
-    )
-
     fg_filepath = join(args.data_dir, args.pyfg_filename)
     if fg_filepath.endswith(".pickle"):
         fg = parse_pickle_file(fg_filepath)
@@ -191,5 +197,11 @@ if __name__ == "__main__":
     print(f"Loaded data: {fg_filepath}")
     print(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
 
+    solver_params = GtsamSolverParams(
+        verbose=True,
+        save_results=True,
+        init_technique=args.init_technique,
+        custom_init_file=args.custom_init_file,
+    )
     results_filepath = join(args.results_dir, args.results_filename)
     solve_mle_gtsam(fg, solver_params, results_filepath)
