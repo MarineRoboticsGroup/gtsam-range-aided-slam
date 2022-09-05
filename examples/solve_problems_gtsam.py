@@ -7,7 +7,7 @@ ro_slam_dir = abspath(realpath(join(file_dir, "..")))
 sys.path.insert(0, ro_slam_dir)
 
 
-from py_factor_graph.parse_factor_graph import (
+from py_factor_graph.parsing import (
     parse_efg_file,
     parse_pickle_file,
 )

@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(".."))
 
-from py_factor_graph.parse_factor_graph import (
+from py_factor_graph.parsing import (
     parse_efg_file,
     parse_pickle_file,
 )

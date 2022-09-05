@@ -1,7 +1,7 @@
 if __name__ == "__main__":
     import argparse
     from os.path import join
-    from py_factor_graph.parse_factor_graph import (
+    from py_factor_graph.parsing import (
         parse_efg_file,
         parse_pickle_file,
     )
