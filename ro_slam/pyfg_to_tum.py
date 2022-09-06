@@ -1,10 +1,8 @@
 if __name__ == "__main__":
     import argparse
     from os.path import join
-    from py_factor_graph.parsing import (
-        parse_efg_file,
-        parse_pickle_file,
-    )
+    from py_factor_graph.parsing.parse_efg_file import parse_efg_file
+    from py_factor_graph.parsing.parse_pickle_file import parse_pickle_file
 
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument(
@@ -18,7 +16,7 @@ if __name__ == "__main__":
     args = arg_parser.parse_args()
 
     fg_filepath = join(args.data_dir, args.pyfg_filename)
-    if fg_filepath.endswith(".pickle"):
+    if fg_filepath.endswith(".pickle") or fg_filepath.endswith(".pkl"):
         fg = parse_pickle_file(fg_filepath)
     elif fg_filepath.endswith(".fg"):
         fg = parse_efg_file(fg_filepath)
