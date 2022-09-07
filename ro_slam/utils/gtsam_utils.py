@@ -2,6 +2,7 @@ import numpy as np
 from typing import List, Tuple, Union, Dict, Optional
 import tqdm  # type: ignore
 import re
+import logging
 
 from gtsam.gtsam import (
     NonlinearFactorGraph,
@@ -32,6 +33,7 @@ from ro_slam.utils.matrix_utils import (
 )
 from ro_slam.utils.solver_utils import SolverResults, VariableValues
 
+logger = logging.getLogger(__name__)
 
 ##### Add costs #####
 
@@ -176,7 +178,10 @@ def set_pose_init_compose(
         perturb_magnitude (float, optional): the magnitude of the perturbation
         perturb_rotation (float, optional): the magnitude of the perturbation
     """
-    print("Setting pose initial points by pose composition")
+    logger.info("Setting pose initial points by pose composition")
+
+    if not gt_start:
+        logger.warning("Using random start pose - this is not ground truth start")
 
     # iterate over measurements and init the rotations
     for robot_idx, odom_chain in enumerate(data.odom_measurements):
@@ -222,7 +227,7 @@ def set_pose_init_gt(
         to apply
         perturb_rotation (Optional[float]): the rotation of the perturbation
     """
-    print("Setting pose initial points to ground truth")
+    logger.info("Setting pose initial points to ground truth")
     for pose_chain in data.pose_variables:
         for pose_idx, pose_var in enumerate(pose_chain):
             pose_key = pose_var.name
@@ -244,7 +249,7 @@ def set_pose_init_random(init_vals: Values, data: FactorGraphData) -> None:
         graph (NonlinearFactorGraph): the graph to initialize the variables in
         rotations (Dict[str, np.ndarray]): the rotation variables to initialize
     """
-    print("Setting pose initial points to random")
+    logger.info("Setting pose initial points to random")
 
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
@@ -263,7 +268,7 @@ def set_pose_init_custom(
         rotations (Dict[str, np.ndarray]): [description]
         custom_rotations (Dict[str, np.ndarray]): [description]
     """
-    print("Setting pose initial points to custom")
+    logger.info("Setting pose initial points to custom")
     for pose_key, pose in custom_poses.items():
         _check_transformation_matrix(pose)
         init_pose_variable(init_vals, pose_key, pose)
@@ -279,7 +284,7 @@ def set_landmark_init_gt(
         landmarks (Dict[str, np.ndarray]): the landmark variables to initialize
         data (FactorGraphData): the factor graph data to use to initialize the landmarks
     """
-    print("Setting landmark initial points to ground truth")
+    logger.info("Setting landmark initial points to ground truth")
     for true_landmark in data.landmark_variables:
 
         # get landmark position
@@ -297,7 +302,7 @@ def set_landmark_init_random(init_vals: Values, data: FactorGraphData):
         graph (NonlinearFactorGraph): the graph to initialize the variables in
         landmarks (Dict[str, np.ndarray]): the landmark variables to initialize
     """
-    print("Setting landmark initial points to ground truth")
+    logger.info("Setting landmark initial points to ground truth")
     for landmark_var in data.landmark_variables:
         landmark_key = landmark_var.name
         rand_vec = get_random_vector(len(landmark_var.true_position))
@@ -315,7 +320,7 @@ def set_landmark_init_custom(
         landmarks (Dict[str, np.ndarray]): [description]
         custom_landmarks (Dict[str, np.ndarray]): [description]
     """
-    print("Setting landmark initial points to custom")
+    logger.info("Setting landmark initial points to custom")
     for landmark_key, landmark_var in custom_landmarks.items():
         init_landmark_variable(init_vals, landmark_key, landmark_var)
 
@@ -336,9 +341,9 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
     # build the prior noise model
     x_stddev = 0.1
     y_stddev = 0.1
-    theta_stddev = 0.1
+    theta_stddev = 0.05
     prior_uncertainty = noiseModel.Diagonal.Sigmas(
-        np.array([x_stddev, y_stddev, theta_stddev])
+        np.array([x_stddev ** 2, y_stddev ** 2, theta_stddev ** 2])
     )
     prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(np.array([x_stddev, y_stddev]))
 
@@ -370,7 +375,9 @@ def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> No
     """
     x_stddev = 0.1
     y_stddev = 0.1
-    prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(np.array([x_stddev, y_stddev]))
+    prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(
+        np.array([x_stddev ** 2, y_stddev ** 2])
+    )
 
     for landmark_var in data.landmark_variables:
         landmark_symbol = get_symbol_from_name(landmark_var.name)

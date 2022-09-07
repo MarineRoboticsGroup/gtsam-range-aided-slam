@@ -1,6 +1,7 @@
 import re
 import time
 import numpy as np
+import logging
 
 from gtsam.gtsam import (
     NonlinearFactorGraph,
@@ -25,6 +26,8 @@ from ro_slam.utils.solver_utils import (
 from ro_slam.utils.matrix_utils import make_transformation_matrix_from_theta
 
 import ro_slam.utils.gtsam_utils as gt_ut
+
+logger = logging.getLogger(__name__)
 
 
 def solve_mle_gtsam(
@@ -52,6 +55,11 @@ def solve_mle_gtsam(
         solver_params.init_technique in init_options
     ), f"Invalid init_technique, must be from: {init_options}"
 
+    unconnected_variables = data.unconnected_variable_names
+    assert (
+        len(unconnected_variables) == 0
+    ), f"Found {unconnected_variables} unconnected variables. "
+
     factor_graph = NonlinearFactorGraph()
     initial_values = Values()
 
@@ -62,7 +70,7 @@ def solve_mle_gtsam(
 
     # pin first pose at origin
     gt_ut.pin_first_pose(factor_graph, data)
-    gt_ut.pin_first_landmark(factor_graph, data)
+    # gt_ut.pin_first_landmark(factor_graph, data)
 
     if solver_params.init_technique == "gt":
         gt_ut.set_pose_init_gt(
@@ -76,7 +84,7 @@ def solve_mle_gtsam(
         gt_ut.set_pose_init_compose(
             initial_values,
             data,
-            gt_start=False,
+            gt_start=True,
             perturb_magnitude=solver_params.init_translation_perturbation,
             perturb_rotation=solver_params.init_rotation_perturbation,
         )
@@ -108,29 +116,33 @@ def solve_mle_gtsam(
     # plt.show()
 
     # perform optimization
-    print("Initializing solver...")
+    logger.info("Initializing solver...")
 
     # initialize the ISAM2 instance
     parameters = ISAM2Params()
     parameters.setOptimizationParams(ISAM2DoglegParams())
-    print(f"ISAM Params: {parameters}")
+    logger.info(f"ISAM Params: {parameters}")
     isam_solver = ISAM2(parameters)
     isam_solver.update(factor_graph, initial_values)
 
     # run the optimization
-    print("Solving ...")
+    logger.info("Solving ...")
     t_start = time.time()
     try:
         if solver_params.verbose:
-            print("Do not have verbose settings for GTSAM yet")
+            logger.warning("Do not have verbose settings for GTSAM yet")
 
         gtsam_result = isam_solver.calculateEstimate()
     except Exception as e:
-        print("Error: ", e)
+        logger.error("Error: ", e)
         return
     t_end = time.time()
     tot_time = t_end - t_start
-    print(f"Solved in {tot_time} seconds")
+    logger.info(f"Solved in {tot_time} seconds")
+
+    # get the cost at the solution
+    cost = factor_graph.error(gtsam_result)
+    logger.info(f"Cost at solution: {cost}")
 
     # get the results and save if desired
     solution_vals = gt_ut.get_solved_values(gtsam_result, tot_time, data)
@@ -192,8 +204,8 @@ if __name__ == "__main__":
         fg = parse_efg_file(fg_filepath)
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
-    print(f"Loaded data: {fg_filepath}")
-    print(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
+    logger.info(f"Loaded data: {fg_filepath}")
+    logger.info(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
 
     solver_params = GtsamSolverParams(
         verbose=True,
