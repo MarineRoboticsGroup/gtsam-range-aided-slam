@@ -2,7 +2,21 @@ import numpy as np
 from typing import List, Tuple, Union, Dict, Optional
 import tqdm  # type: ignore
 import re
-import logging
+
+import logging, coloredlogs
+
+logger = logging.getLogger(__name__)
+field_styles = {
+    "filename": {"color": "green"},
+    "filename": {"color": "green"},
+    "levelname": {"bold": True, "color": "black"},
+    "name": {"color": "blue"},
+}
+coloredlogs.install(
+    level="INFO",
+    fmt="[%(filename)s:%(lineno)d] %(name)s %(levelname)s - %(message)s",
+    field_styles=field_styles,
+)
 
 from gtsam.gtsam import (
     NonlinearFactorGraph,
@@ -33,7 +47,6 @@ from ro_slam.utils.matrix_utils import (
 )
 from ro_slam.utils.solver_utils import SolverResults, VariableValues
 
-logger = logging.getLogger(__name__)
 
 ##### Add costs #####
 

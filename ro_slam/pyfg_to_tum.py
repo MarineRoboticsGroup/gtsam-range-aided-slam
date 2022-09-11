@@ -4,6 +4,21 @@ if __name__ == "__main__":
     from py_factor_graph.parsing.parse_efg_file import parse_efg_file
     from py_factor_graph.parsing.parse_pickle_file import parse_pickle_file
 
+    import logging, coloredlogs
+
+    logger = logging.getLogger(__name__)
+    field_styles = {
+        "filename": {"color": "green"},
+        "filename": {"color": "green"},
+        "levelname": {"bold": True, "color": "black"},
+        "name": {"color": "blue"},
+    }
+    coloredlogs.install(
+        level="INFO",
+        fmt="[%(filename)s:%(lineno)d] %(name)s %(levelname)s - %(message)s",
+        field_styles=field_styles,
+    )
+
     arg_parser = argparse.ArgumentParser()
     arg_parser.add_argument(
         "data_dir", type=str, help="Path to the directory the PyFactorGraph is held in"
@@ -22,7 +37,7 @@ if __name__ == "__main__":
         fg = parse_efg_file(fg_filepath)
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
-    print(f"Loaded data: {fg_filepath}")
-    print(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
+    logger.info(f"Loaded data: {fg_filepath}")
+    logger.info(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
 
     fg.write_pose_gt_to_tum(args.results_dir)

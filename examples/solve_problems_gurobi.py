@@ -1,10 +1,27 @@
 import os
 from os.path import join, expanduser, abspath, realpath
-import sys
+
+import logging, coloredlogs
+
+logger = logging.getLogger(__name__)
+field_styles = {
+    "filename": {"color": "green"},
+    "filename": {"color": "green"},
+    "levelname": {"bold": True, "color": "black"},
+    "name": {"color": "blue"},
+}
+coloredlogs.install(
+    level="INFO",
+    fmt="[%(filename)s:%(lineno)d] %(name)s %(levelname)s - %(message)s",
+    field_styles=field_styles,
+)
 
 
 file_dir = os.path.dirname(os.path.realpath(__file__))
 ro_slam_dir = abspath(realpath(join(file_dir, "..")))
+
+import sys
+
 sys.path.insert(0, ro_slam_dir)
 
 from py_factor_graph.parsing import (
@@ -57,7 +74,6 @@ if __name__ == "__main__":
             fg = parse_efg_file(fg_filepath)
         else:
             raise ValueError(f"Unknown file type: {fg_filepath}")
-        print(f"Loaded data: {fg_filepath}")
+        logger.info(f"Loaded data: {fg_filepath}")
 
         solve_mle_qcqp(fg, solver_params, results_filepath)
-    print()

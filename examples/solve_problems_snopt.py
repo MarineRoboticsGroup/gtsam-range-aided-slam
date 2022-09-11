@@ -1,6 +1,11 @@
 import os
 from os.path import join, expanduser
+
+import logging, coloredlogs
 import sys
+
+logger = logging.getLogger(__name__)
+coloredlogs.install(level="DEBUG", logger=logger)
 
 sys.path.insert(0, os.path.abspath(".."))
 
@@ -58,7 +63,7 @@ if __name__ == "__main__":
             fg = parse_efg_file(fg_filepath)
         else:
             raise ValueError(f"Unknown file type: {fg_filepath}")
-        print(f"Loaded data: {fg_filepath}")
+        logger.info(f"Loaded data: {fg_filepath}")
 
         solve_mle_qcqp(fg, solver_params, results_filepath)
     print()

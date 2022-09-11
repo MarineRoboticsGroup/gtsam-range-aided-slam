@@ -1,7 +1,21 @@
 import re
 import time
 import numpy as np
-import logging
+
+import logging, coloredlogs
+
+logger = logging.getLogger(__name__)
+field_styles = {
+    "filename": {"color": "green"},
+    "filename": {"color": "green"},
+    "levelname": {"bold": True, "color": "black"},
+    "name": {"color": "blue"},
+}
+coloredlogs.install(
+    level="INFO",
+    fmt="[%(filename)s:%(lineno)d] %(name)s %(levelname)s - %(message)s",
+    field_styles=field_styles,
+)
 
 from gtsam.gtsam import (
     NonlinearFactorGraph,
@@ -26,8 +40,6 @@ from ro_slam.utils.solver_utils import (
 from ro_slam.utils.matrix_utils import make_transformation_matrix_from_theta
 
 import ro_slam.utils.gtsam_utils as gt_ut
-
-logger = logging.getLogger(__name__)
 
 
 def solve_mle_gtsam(

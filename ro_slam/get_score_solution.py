@@ -1,13 +1,15 @@
-from os.path import join
-
-from py_factor_graph.parsing import (
-    parse_efg_file,
-    parse_pickle_file,
-)
-from ro_slam.solve_mle_qcqp import solve_mle_qcqp, QcqpSolverParams
-
-
 if __name__ == "__main__":
+    from os.path import join
+
+    from py_factor_graph.parsing import (
+        parse_efg_file,
+        parse_pickle_file,
+    )
+    from ro_slam.solve_mle_qcqp import solve_mle_qcqp, QcqpSolverParams
+    import logging
+
+    logger = logging.getLogger(__name__)
+
     solver_params = QcqpSolverParams(
         solver="gurobi",
         verbose=True,
@@ -43,7 +45,7 @@ if __name__ == "__main__":
         fg = parse_efg_file(fg_filepath)
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
-    print(f"Loaded data: {fg_filepath}")
+    logger.info(f"Loaded data: {fg_filepath}")
     fg.print_summary()
 
     # check that the measurements are all good
