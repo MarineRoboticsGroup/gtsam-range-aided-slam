@@ -2,6 +2,19 @@ import numpy as np
 from typing import List, Tuple, Union, Dict, Optional
 import tqdm  # type: ignore
 import re
+from py_factor_graph.measurements import (
+    PoseMeasurement2D,
+    PoseMeasurement3D,
+    POSE_MEASUREMENT_TYPES,
+)
+from py_factor_graph.variables import (
+    PoseVariable2D,
+    PoseVariable3D,
+    POSE_VARIABLE_TYPES,
+    LandmarkVariable2D,
+    LandmarkVariable3D,
+    LANDMARK_VARIABLE_TYPES,
+)
 
 import logging, coloredlogs
 
@@ -23,24 +36,24 @@ from gtsam.gtsam import (
     Values,
     RangeFactor2D,
     RangeFactorPose2,
+    RangeFactorPose3,
     noiseModel,
     BetweenFactorPose2,
+    BetweenFactorPose3,
     Pose2,
+    Pose3,
+    Rot3,
     PriorFactorPose2,
+    PriorFactorPose3,
     PriorFactorPoint2,
     symbol,
 )
 
 from py_factor_graph.factor_graph import FactorGraphData
-from py_factor_graph.measurements import PoseMeasurement
 from ro_slam.utils.matrix_utils import (
-    _check_square,
     _check_transformation_matrix,
     get_random_vector,
-    get_random_rotation_matrix,
     get_random_transformation_matrix,
-    get_rotation_matrix_from_theta,
-    get_theta_from_rotation_matrix_so_projection,
     get_theta_from_transformation_matrix,
     get_translation_from_transformation_matrix,
     apply_transformation_matrix_perturbation,
@@ -70,7 +83,7 @@ def add_distances_cost(
 
         range_noise = noiseModel.Isotropic.Sigma(1, range_measure.stddev)
 
-        # If the lankmark is actually secretly a pose, then we use RangeFactorPose2
+        # If the landmark is actually secretly a pose, then we use RangeFactorPose2
         if "L" not in range_measure.landmark_key:
             range_factor = RangeFactorPose2(
                 pose_symbol, landmark_symbol, range_measure.dist, range_noise
@@ -110,10 +123,53 @@ def add_odom_cost(
             j_symbol = get_symbol_from_name(odom_measure.to_pose)
 
             # add the factor to the factor graph
-            odom_noise = noiseModel.Diagonal.Sigmas(np.diag(odom_measure.covariance))
-            rel_pose = Pose2(odom_measure.x, odom_measure.y, odom_measure.theta)
-            odom_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, odom_noise)
+            odom_factor = get_pose_to_pose_factor(odom_measure, i_symbol, j_symbol)
             graph.push_back(odom_factor)
+
+
+def get_pose_to_pose_factor(
+    odom_measure: POSE_MEASUREMENT_TYPES,
+    i_symbol: int,
+    j_symbol: int,
+) -> Union[BetweenFactorPose2, BetweenFactorPose3]:
+    """Get the odometry factor from the odometry measurement.
+
+    Args:
+        odom_measure (POSE_MEASUREMENT_TYPES): the odometry measurement
+        i_symbol (int): the symbol for the first pose
+        j_symbol (int): the symbol for the second pose
+
+    Returns:
+        Union[BetweenFactorPose2, BetweenFactorPose3]: the relative pose factor
+    """
+    odom_noise = noiseModel.Diagonal.Sigmas(np.diag(odom_measure.covariance))
+    rel_pose = get_relative_pose_from_odom_measure(odom_measure)
+    if isinstance(odom_measure, PoseMeasurement2D):
+        odom_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, odom_noise)
+    elif isinstance(odom_measure, PoseMeasurement3D):
+        odom_factor = BetweenFactorPose3(i_symbol, j_symbol, rel_pose, odom_noise)
+    return odom_factor
+
+
+def get_relative_pose_from_odom_measure(odom_measure: POSE_MEASUREMENT_TYPES):
+    """Get the relative pose from the odometry measurement.
+
+    Args:
+        odom_measure (POSE_MEASUREMENT_TYPES): the odometry measurement
+
+    Returns:
+        Pose2: the relative pose
+    """
+    if isinstance(odom_measure, PoseMeasurement2D):
+        return Pose2(odom_measure.x, odom_measure.y, odom_measure.theta)
+    elif isinstance(odom_measure, PoseMeasurement3D):
+        return Pose3(
+            Rot3(odom_measure.rotation_matrix), odom_measure.translation_vector
+        )
+    else:
+        err = f"Unknown odometry measurement type: {type(odom_measure)}"
+        logger.error(err)
+        raise ValueError(err)
 
 
 def add_loop_closure_cost(
@@ -140,17 +196,14 @@ def add_loop_closure_cost(
         # the indices of the related poses in the odometry measurement
         i_symbol = get_symbol_from_name(loop_measure.base_pose)
         j_symbol = get_symbol_from_name(loop_measure.to_pose)
-
-        loop_noise = noiseModel.Diagonal.Sigmas(np.diag(loop_measure.covariance))
-        rel_pose = Pose2(loop_measure.x, loop_measure.y, loop_measure.theta)
-        loop_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, loop_noise)
+        loop_factor = get_pose_to_pose_factor(loop_measure, i_symbol, j_symbol)
         graph.push_back(loop_factor)
 
 
 ##### Initialization strategies #####
 
 
-def init_pose_variable(init_vals: Values, pose_key: str, val: np.ndarray):
+def init_pose_variable(init_vals: Values, pose_key: str, val: np.ndarray, dim: int):
     """
     Initialize the rotation variables to the given rotation matrix.
 
@@ -158,9 +211,14 @@ def init_pose_variable(init_vals: Values, pose_key: str, val: np.ndarray):
         rot (np.ndarray): The rotation variables.
         mat (np.ndarray): The rotation matrix.
     """
-    _check_transformation_matrix(val)
+    assert dim in [2, 3], f"Invalid dimension: {dim}"
+    _check_transformation_matrix(val, dim=dim)
     pose_symbol = get_symbol_from_name(pose_key)
-    pose = get_pose2_from_matrix(val)
+    if dim == 2:
+        pose = get_pose2_from_matrix(val)
+    elif dim == 3:
+        pose = get_pose3_from_matrix(val)
+
     init_vals.insert(pose_symbol, pose)
 
 
@@ -209,18 +267,19 @@ def set_pose_init_compose(
 
         # if we have perturbation parameters, then we perturb the first pose
         if perturb_magnitude is not None and perturb_rotation is not None:
+            logger.warning("Perturbing the first pose")
             curr_pose = apply_transformation_matrix_perturbation(
                 curr_pose, perturb_magnitude, perturb_rotation
             )
 
-        init_pose_variable(init_vals, first_pose_name, curr_pose)
+        init_pose_variable(init_vals, first_pose_name, curr_pose, dim=data.dimension)
 
         for odom_measure in odom_chain:
 
             # update the rotation and initialize the next rotation
             curr_pose = curr_pose @ odom_measure.transformation_matrix
             curr_pose_name = odom_measure.to_pose
-            init_pose_variable(init_vals, curr_pose_name, curr_pose)
+            init_pose_variable(init_vals, curr_pose_name, curr_pose, dim=data.dimension)
 
 
 def set_pose_init_gt(
@@ -252,7 +311,7 @@ def set_pose_init_gt(
                     true_pose, perturb_magnitude, perturb_rotation
                 )
 
-            init_pose_variable(init_vals, pose_key, true_pose)
+            init_pose_variable(init_vals, pose_key, true_pose, dim=data.dimension)
 
 
 def set_pose_init_random(init_vals: Values, data: FactorGraphData) -> None:
@@ -268,7 +327,7 @@ def set_pose_init_random(init_vals: Values, data: FactorGraphData) -> None:
         for pose_var in pose_chain:
             pose_key = pose_var.name
             rand_pose = get_random_transformation_matrix()
-            init_pose_variable(init_vals, pose_key, rand_pose)
+            init_pose_variable(init_vals, pose_key, rand_pose, dim=data.dimension)
 
 
 def set_pose_init_custom(
@@ -284,7 +343,7 @@ def set_pose_init_custom(
     logger.info("Setting pose initial points to custom")
     for pose_key, pose in custom_poses.items():
         _check_transformation_matrix(pose)
-        init_pose_variable(init_vals, pose_key, pose)
+        init_pose_variable(init_vals, pose_key, pose, dim=pose.shape[0] - 1)
 
 
 def set_landmark_init_gt(
@@ -352,13 +411,18 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
 
     """
     # build the prior noise model
-    x_stddev = 0.1
-    y_stddev = 0.1
-    theta_stddev = 0.05
-    prior_uncertainty = noiseModel.Diagonal.Sigmas(
-        np.array([x_stddev ** 2, y_stddev ** 2, theta_stddev ** 2])
-    )
-    prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(np.array([x_stddev, y_stddev]))
+    trans_stddev = 0.1
+    rot_stddev = 0.05
+    if data.dimension == 2:
+        prior_uncertainty = noiseModel.Diagonal.Sigmas(
+            np.array([trans_stddev ** 2] * 2 + [rot_stddev ** 2])
+        )
+    elif data.dimension == 3:
+        prior_uncertainty = noiseModel.Diagonal.Sigmas(
+            np.array([trans_stddev ** 2] * 3 + [rot_stddev ** 2] * 3)
+        )
+    else:
+        raise ValueError(f"The factor graph dimension is bad! D={data.dimension}")
 
     for pose_chain in data.pose_variables:
         if len(pose_chain) == 0:
@@ -366,14 +430,40 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
 
         # get the first pose variable
         pose = pose_chain[0]
-        pose_symbol = get_symbol_from_name(pose.name)
-        true_pose = Pose2(pose.true_position[0], pose.true_position[1], pose.true_theta)
 
         # add the prior factor
-        pose_prior = PriorFactorPose2(pose_symbol, true_pose, prior_uncertainty)
+        pose_prior = get_gtsam_prior_from_pose_variable(pose, prior_uncertainty)
         graph.push_back(pose_prior)
 
         break  # TODO: Pin only the first pose, remove if not needed
+
+
+def get_gtsam_pose_from_pose_variable(
+    pose_var: POSE_VARIABLE_TYPES,
+) -> Union[Pose2, Pose3]:
+    if isinstance(pose_var, PoseVariable2D):
+        return Pose2(pose_var.true_x, pose_var.true_y, pose_var.true_theta)
+    elif isinstance(pose_var, PoseVariable3D):
+        return Pose3(Rot3(pose_var.true_rotation), pose_var.position_vector)
+    else:
+        err = f"Invalid pose variable type: {type(pose_var)}"
+        logger.error(err)
+        raise ValueError(err)
+
+
+def get_gtsam_prior_from_pose_variable(
+    pose_var: POSE_VARIABLE_TYPES, prior_uncertainty: np.ndarray
+) -> Union[PriorFactorPose2, PriorFactorPose3]:
+    pose_symbol = get_symbol_from_name(pose_var.name)
+    true_pose = get_gtsam_pose_from_pose_variable(pose_var)
+    if isinstance(pose_var, PoseVariable2D):
+        return PriorFactorPose2(pose_symbol, true_pose, prior_uncertainty)
+    elif isinstance(pose_var, PoseVariable3D):
+        return PriorFactorPose3(pose_symbol, true_pose, prior_uncertainty)
+    else:
+        err = f"Invalid pose variable type: {type(pose_var)}"
+        logger.error(err)
+        raise ValueError(err)
 
 
 def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
@@ -430,16 +520,30 @@ def get_solved_values(
     solved_landmarks: Dict[str, np.ndarray] = {}
     solved_distances = None
 
+    def _load_pose_result_to_solved_poses(pose_var: POSE_VARIABLE_TYPES) -> None:
+        pose_symbol = get_symbol_from_name(pose_var.name)
+        if isinstance(pose_var, PoseVariable2D):
+            pose_result = result.atPose2(pose_symbol)
+        elif isinstance(pose_var, PoseVariable3D):
+            pose_result = result.atPose3(pose_symbol)
+        solved_poses[pose_var.name] = pose_result.matrix()
+
+    def _load_landmark_result_to_solved_landmarks(
+        landmark_var: LANDMARK_VARIABLE_TYPES,
+    ) -> None:
+        landmark_symbol = landmark.name
+        if isinstance(landmark_var, LandmarkVariable2D):
+            landmark_result = result.atPoint2(landmark_symbol)
+        elif isinstance(landmark_var, LandmarkVariable3D):
+            landmark_result = result.atPoint3(landmark_symbol)
+        solved_landmarks[landmark_var.name] = landmark_result
+
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
-            pose_key = pose_var.name
-            pose_symbol = get_symbol_from_name(pose_key)
-            solved_poses[pose_key] = result.atPose2(pose_symbol).matrix()
+            _load_pose_result_to_solved_poses(pose_var)
 
     for landmark in data.landmark_variables:
-        landmark_key = landmark.name
-        landmark_symbol = get_symbol_from_name(landmark.name)
-        solved_landmarks[landmark_key] = result.atPoint2(landmark_symbol)
+        _load_landmark_result_to_solved_landmarks(landmark)
 
     return SolverResults(
         VariableValues(
@@ -468,6 +572,22 @@ def get_pose2_from_matrix(pose_matrix: np.ndarray) -> Pose2:
     """
     Returns the pose2 from a transformation matrix
     """
+    _check_transformation_matrix(pose_matrix, dim=2)
     theta = get_theta_from_transformation_matrix(pose_matrix)
     trans = get_translation_from_transformation_matrix(pose_matrix)
     return Pose2(trans[0], trans[1], theta)
+
+
+def get_pose3_from_matrix(pose_matrix: np.ndarray) -> Pose3:
+    """_summary_
+
+    Args:
+        pose_matrix (np.ndarray): _description_
+
+    Returns:
+        Pose3: _description_
+    """
+    _check_transformation_matrix(pose_matrix, dim=3)
+    rot_matrix = pose_matrix[:3, :3]
+    tx, ty, tz = pose_matrix[:3, 3]
+    return Pose3(Rot3(rot_matrix), np.array([tx, ty, tz]))

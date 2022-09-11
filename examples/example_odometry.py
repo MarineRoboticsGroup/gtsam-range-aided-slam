@@ -17,17 +17,19 @@ if __name__ == "__main__":
 
     # make pose X1
     pose1 = Pose2(0.0, 0.0, 0.0)
-    pose_1_symbol = symbol('x', 1)
+    pose_1_symbol = symbol("x", 1)
 
     # make odometry
     odom_noise = noiseModel.Diagonal.Sigmas([0.2, 0.2, 0.1])
     delta_x = 2.0
     odom_rel_pose = Pose2(delta_x, 0.0, 0.0)
-    odom_factor = BetweenFactorPose2(symbol('x', 1), symbol('x', 2), odom_rel_pose, odom_noise)
+    odom_factor = BetweenFactorPose2(
+        symbol("x", 1), symbol("x", 2), odom_rel_pose, odom_noise
+    )
 
     # make pose X2
     pose2 = Pose2(pose1.x() + delta_x, pose1.y(), pose1.theta())
-    pose_2_symbol = symbol('x', 2)
+    pose_2_symbol = symbol("x", 2)
 
     # make prior on pose X1
     prior_noise = noiseModel.Diagonal.Sigmas([0.3, 0.3, 0.1])

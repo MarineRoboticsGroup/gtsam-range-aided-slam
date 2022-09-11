@@ -3,6 +3,20 @@ import pickle
 import sys
 import os
 from typing import List, Tuple
+import logging, coloredlogs
+
+logger = logging.getLogger(__name__)
+field_styles = {
+    "filename": {"color": "green"},
+    "filename": {"color": "green"},
+    "levelname": {"bold": True, "color": "black"},
+    "name": {"color": "blue"},
+}
+coloredlogs.install(
+    level="INFO",
+    fmt="[%(filename)s:%(lineno)d] %(name)s %(levelname)s - %(message)s",
+    field_styles=field_styles,
+)
 
 
 def recursively_find_result_files(dir) -> List[Tuple[str, str]]:
@@ -53,4 +67,4 @@ if __name__ == "__main__":
             gtsam_result = pickle.load(f)
 
             save_to_tum(gtsam_result, result_filepath, strip_extension=True)
-            print("Saved TUM files to {}".format(result_filepath))
+            logger.info("Saved TUM files to {}".format(result_filepath))

@@ -6,7 +6,7 @@ import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
 from matplotlib.colors import to_rgba
 from py_factor_graph.factor_graph import FactorGraphData
-from py_factor_graph.variables import PoseVariable, LandmarkVariable
+from py_factor_graph.variables import PoseVariable2D, LandmarkVariable2D
 from ro_slam.utils.circle_utils import Arc, Circle, CircleIntersection, Point
 from ro_slam.utils.solver_utils import SolverResults, VariableValues
 from ro_slam.utils.matrix_utils import (
@@ -261,7 +261,7 @@ def draw_line(
     return line
 
 
-def draw_pose_variable(ax: plt.Axes, pose: PoseVariable):
+def draw_pose_variable(ax: plt.Axes, pose: PoseVariable2D):
     true_x = pose.true_x
     true_y = pose.true_y
     true_theta = pose.true_theta
@@ -283,7 +283,7 @@ def draw_pose_solution(
 
 
 def draw_loop_closure_measurement(
-    ax: plt.Axes, base_loc: np.ndarray, to_pose: PoseVariable
+    ax: plt.Axes, base_loc: np.ndarray, to_pose: PoseVariable2D
 ) -> Tuple[mlines.Line2D, mpatches.FancyArrow]:
     assert base_loc.size == 2
 
@@ -298,7 +298,7 @@ def draw_loop_closure_measurement(
     return line, arrow
 
 
-def draw_landmark_variable(ax: plt.Axes, landmark: LandmarkVariable):
+def draw_landmark_variable(ax: plt.Axes, landmark: LandmarkVariable2D):
     true_x = landmark.true_x
     true_y = landmark.true_y
     ax.scatter(true_x, true_y, color="green", marker=(5, 2))

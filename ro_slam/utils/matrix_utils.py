@@ -231,8 +231,6 @@ def _check_rotation_matrix(R: np.ndarray, assert_test: bool = False):
             print(la.eigvals(R))
             print(R)
             raise ValueError(f"R det incorrect {np.linalg.det(R)}")
-    # print(f"R is a rotation matrix {R}")
-    # print()
 
 
 def _check_square(mat: np.ndarray):
@@ -270,7 +268,9 @@ def _check_is_laplacian(L: np.ndarray):
     assert np.allclose(L @ ones, zeros), f"L @ ones != zeros: {L @ ones}"
 
 
-def _check_transformation_matrix(T: np.ndarray, assert_test: bool = True):
+def _check_transformation_matrix(
+    T: np.ndarray, assert_test: bool = True, dim: Optional[int] = None
+):
     """Checks that the matrix passed in is a homogeneous transformation matrix.
     If assert_test is True, then this is in the form of assertions, otherwise we
     just print out error messages but continue
@@ -281,17 +281,24 @@ def _check_transformation_matrix(T: np.ndarray, assert_test: bool = True):
         asserted or just a 'soft' test and only prints message if test fails. Defaults to True.
     """
     _check_square(T)
-    assert (
-        T.shape[0] == 3
-    ), f"only considering 2d world right now so matrix must be 3x3, received {T.shape}"
+    matrix_dim = T.shape[0]
+    if dim is not None:
+        assert (
+            matrix_dim == dim + 1
+        ), f"matrix dimension {matrix_dim} != dim + 1 {dim + 1}"
+
+    assert matrix_dim in [
+        3,
+        4,
+    ], f"Was {T.shape} but must be 3x3 or 4x4 for a transformation matrix"
 
     # check that is rotation matrix in upper left block
-    R = T[0:2, 0:2]
+    R = T[:-1, :-1]
     _check_rotation_matrix(R, assert_test=assert_test)
 
     # check that the bottom row is [0, 0, 1]
-    bottom = T[2, :]
-    bottom_expected: np.ndarray = np.ndarray([0, 0, 1])
+    bottom = T[-1, :]
+    bottom_expected = np.array([0] * (matrix_dim - 1) + [1])
     assert np.allclose(bottom.flatten(), bottom_expected)
 
 

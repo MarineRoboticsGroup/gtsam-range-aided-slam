@@ -6,6 +6,7 @@ if __name__ == "__main__":
         parse_pickle_file,
     )
     from ro_slam.solve_mle_qcqp import solve_mle_qcqp, QcqpSolverParams
+
     import logging
 
     logger = logging.getLogger(__name__)
