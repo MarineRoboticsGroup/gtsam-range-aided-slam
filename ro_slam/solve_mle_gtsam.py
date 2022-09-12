@@ -116,12 +116,9 @@ def solve_mle_gtsam(
 
     # Visualize initial values
     # print(initial_values)
-    # print(solver_params.init_technique)
     # plot.plot_trajectory(1, initial_values, scale=0.1)
     # plot.set_axes_equal(1)
     # plt.show()
-    # print(factor_graph)
-    # raise Exception("STOP")
 
     # perform optimization
     logger.info("Initializing solver...")

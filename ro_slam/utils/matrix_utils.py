@@ -39,6 +39,19 @@ def apply_transformation_matrix_perturbation(
     return transformation_matrix @ rand_trans
 
 
+def get_matrix_determinant(mat: np.ndarray) -> float:
+    """returns the determinant of the matrix
+
+    Args:
+        mat (np.ndarray): [description]
+
+    Returns:
+        float: [description]
+    """
+    _check_square(mat)
+    return float(np.linalg.det(mat))
+
+
 def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
     """
     Rounds a matrix to special orthogonal form.
@@ -206,7 +219,11 @@ def get_random_rotation_matrix(dim: int = 2) -> np.ndarray:
         theta = 2 * np.pi * np.random.rand()
         return get_rotation_matrix_from_theta(theta)
     else:
-        raise NotImplementedError("Only implemented for dim = 2")
+        rand_rot = scipy.spatial.transform.Rotation.random()
+        assert isinstance(rand_rot, scipy.spatial.transform.Rotation)
+        rot_mat = rand_rot.as_matrix()
+        assert isinstance(rot_mat, np.ndarray)
+        return rot_mat
 
 
 def get_random_transformation_matrix(dim: int = 2) -> np.ndarray:
@@ -230,9 +247,11 @@ def make_transformation_matrix(R: np.ndarray, t: np.ndarray) -> np.ndarray:
         np.ndarray: the transformation matrix
     """
     _check_rotation_matrix(R)
-    T = np.eye(3)
-    T[:2, :2] = R
-    T[:2, 2] = t
+    dim = R.shape[0]
+    assert t.shape in [(dim,), (dim, 1)], f"Translation vector must be of size {dim}"
+    T = np.eye(dim + 1)
+    T[:dim, :dim] = R
+    T[:dim, dim] = t
     _check_transformation_matrix(T)
     return T
 

@@ -262,7 +262,7 @@ def set_pose_init_compose(
         if gt_start:
             curr_pose = data.pose_variables[robot_idx][0].transformation_matrix
         else:
-            curr_pose = get_random_transformation_matrix()
+            curr_pose = get_random_transformation_matrix(dim=data.dimension)
         first_pose_name = odom_chain[0].base_pose
 
         # if we have perturbation parameters, then we perturb the first pose
@@ -307,6 +307,7 @@ def set_pose_init_gt(
 
             # if we have perturbation parameters, then we perturb the first pose
             if perturb_magnitude is not None and perturb_rotation is not None:
+                logger.warning("Perturbing the first pose")
                 true_pose = apply_transformation_matrix_perturbation(
                     true_pose, perturb_magnitude, perturb_rotation
                 )
@@ -326,7 +327,7 @@ def set_pose_init_random(init_vals: Values, data: FactorGraphData) -> None:
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
             pose_key = pose_var.name
-            rand_pose = get_random_transformation_matrix()
+            rand_pose = get_random_transformation_matrix(dim=data.dimension)
             init_pose_variable(init_vals, pose_key, rand_pose, dim=data.dimension)
 
 
