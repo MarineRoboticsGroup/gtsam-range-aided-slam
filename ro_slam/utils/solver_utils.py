@@ -12,6 +12,7 @@ from ro_slam.utils.matrix_utils import (
     get_theta_from_rotation_matrix,
     get_rotation_matrix_from_transformation_matrix,
     get_theta_from_transformation_matrix,
+    get_quat_from_rotation_matrix,
     get_translation_from_transformation_matrix,
     _check_rotation_matrix,
     _check_transformation_matrix,
@@ -42,8 +43,6 @@ class GtsamSolverParams:
 @attr.s(frozen=True)
 class VariableValues:
     poses: Dict[str, np.ndarray] = attr.ib()
-    # translations: Dict[str, np.ndarray] = attr.ib()
-    # rotations: Dict[str, np.ndarray] = attr.ib()
     landmarks: Dict[str, np.ndarray] = attr.ib()
     distances: Optional[Dict[Tuple[str, str], np.ndarray]] = attr.ib()
 
@@ -53,7 +52,7 @@ class VariableValues:
             _check_transformation_matrix(pose)
 
     @property
-    def rotations(self):
+    def rotations_theta(self):
         return {
             key: get_theta_from_transformation_matrix(value)
             for key, value in self.poses.items()
@@ -64,6 +63,13 @@ class VariableValues:
         return {
             key: get_rotation_matrix_from_transformation_matrix(value)
             for key, value in self.poses.items()
+        }
+
+    @property
+    def rotations_quat(self):
+        return {
+            key: get_quat_from_rotation_matrix(value)
+            for key, value in self.rotations_matrix.items()
         }
 
     @property
@@ -90,8 +96,12 @@ class SolverResults:
         return self.variables.translations
 
     @property
-    def rotations(self):
-        return self.variables.rotations
+    def rotations_quat(self):
+        return self.variables.rotations_quat
+
+    @property
+    def rotations_theta(self):
+        return self.variables.rotations_theta
 
     @property
     def landmarks(self):
@@ -160,12 +170,15 @@ def save_results_to_file(
         pickle_file.close()
 
     elif filepath.endswith(".txt"):
+        raise NotImplementedError(
+            "Saving to txt not implemented yet since allowing for 3D"
+        )
         with open(filepath, "w") as f:
             translations = solved_results.translations
-            rotations = solved_results.rotations
+            rot_thetas = solved_results.rotations_theta
             for pose_key in translations.keys():
                 trans_solve = translations[pose_key]
-                theta_solve = rotations[pose_key]
+                theta_solve = rot_thetas[pose_key]
 
                 trans_string = np.array2string(
                     trans_solve, precision=1, floatmode="fixed"
@@ -243,14 +256,14 @@ def save_to_tum(
 
         with open(modified_path, "w") as f:
             translations = solved_results.translations
-            rotations = solved_results.rotations
+            quats = solved_results.rotations_quat
             for i, pose_key in enumerate(pose_chain):
                 trans_solve = translations[pose_key]
-                theta_solve = rotations[pose_key]
+                tx, ty, tz = trans_solve
+                quat_solve = quats[pose_key]
+                qx, qy, qz, qw = quat_solve
                 # TODO: Add actual timestamps
-                f.write(
-                    f"{i} {trans_solve[0]} {trans_solve[1]} 0 0 0 {np.sin(theta_solve/2)} {np.cos(theta_solve/2)}\n"
-                )
+                f.write(f"{i} {tx} {ty} {tz} {qx} {qy} {qz} {qw}\n")
 
 
 def check_rotations(result, rotations: Dict[str, np.ndarray]):

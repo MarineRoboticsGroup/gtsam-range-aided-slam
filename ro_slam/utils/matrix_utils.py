@@ -1,5 +1,6 @@
 import numpy as np
 import scipy.linalg as la  # type: ignore
+import scipy.spatial
 from typing import List, Tuple, Optional
 
 
@@ -84,8 +85,35 @@ def get_theta_from_rotation_matrix(mat: np.ndarray) -> float:
     Returns:
         float: theta
     """
-    _check_square(mat)
+    _check_rotation_matrix(mat)
+    mat_dim = mat.shape[0]
+    assert mat_dim == 2, f"Rotation matrix must be 2x2, got {mat_dim}x{mat_dim}"
     return float(np.arctan2(mat[1, 0], mat[0, 0]))
+
+
+def get_quat_from_rotation_matrix(mat: np.ndarray) -> np.ndarray:
+    """Returns the quaternion from a rotation matrix
+
+    Args:
+        mat (np.ndarray): the rotation matrix
+
+    Returns:
+        np.ndarray: the quaternion
+    """
+    _check_rotation_matrix(mat)
+    mat_dim = mat.shape[0]
+
+    if mat_dim == 2:
+        rot_matrix = np.eye(3)
+        rot_matrix[:2, :2] = mat
+    else:
+        rot_matrix = mat
+
+    rot = scipy.spatial.transform.Rotation.from_matrix(rot_matrix)
+    assert isinstance(rot, scipy.spatial.transform.Rotation)
+    quat = rot.as_quat()
+    assert isinstance(quat, np.ndarray)
+    return quat
 
 
 def get_random_vector(dim: int) -> np.ndarray:
@@ -121,7 +149,9 @@ def get_rotation_matrix_from_transformation_matrix(T: np.ndarray) -> np.ndarray:
     Returns:
         np.ndarray: the rotation matrix
     """
-    return T[:2, :2]
+    _check_transformation_matrix(T)
+    mat_dim = T.shape[0]
+    return T[: mat_dim - 1, : mat_dim - 1]
 
 
 def get_theta_from_transformation_matrix(T: np.ndarray) -> float:
@@ -133,7 +163,25 @@ def get_theta_from_transformation_matrix(T: np.ndarray) -> float:
     Returns:
         float: the angle theta
     """
+    _check_transformation_matrix(T)
+    mat_dim = T.shape[0]
+    assert mat_dim == 3, f"Transformation matrix must be 3x3, got {mat_dim}x{mat_dim}"
     return get_theta_from_rotation_matrix(
+        get_rotation_matrix_from_transformation_matrix(T)
+    )
+
+
+def get_quat_from_transformation_matrix(T: np.ndarray) -> np.ndarray:
+    """Returns the quaternion from a transformation matrix
+
+    Args:
+        T (np.ndarray): the transformation matrix
+
+    Returns:
+        np.ndarray: the quaternion
+    """
+    _check_transformation_matrix(T)
+    return get_quat_from_rotation_matrix(
         get_rotation_matrix_from_transformation_matrix(T)
     )
 
@@ -147,7 +195,9 @@ def get_translation_from_transformation_matrix(T: np.ndarray) -> np.ndarray:
     Returns:
         np.ndarray: the translation
     """
-    return T[:2, 2]
+    _check_transformation_matrix(T)
+    mat_dim = T.shape[0]
+    return T[: mat_dim - 1, mat_dim - 1]
 
 
 def get_random_rotation_matrix(dim: int = 2) -> np.ndarray:
@@ -299,7 +349,9 @@ def _check_transformation_matrix(
     # check that the bottom row is [0, 0, 1]
     bottom = T[-1, :]
     bottom_expected = np.array([0] * (matrix_dim - 1) + [1])
-    assert np.allclose(bottom.flatten(), bottom_expected)
+    assert np.allclose(
+        bottom.flatten(), bottom_expected
+    ), f"Transformation matrix bottom row is {bottom} but should be {bottom_expected}"
 
 
 #### print functions ####

@@ -70,7 +70,7 @@ def solve_mle_gtsam(
     unconnected_variables = data.unconnected_variable_names
     assert (
         len(unconnected_variables) == 0
-    ), f"Found {unconnected_variables} unconnected variables. "
+    ), f"Found {sorted(list(unconnected_variables))} unconnected variables. "
 
     factor_graph = NonlinearFactorGraph()
     initial_values = Values()
@@ -109,23 +109,19 @@ def solve_mle_gtsam(
             solver_params.custom_init_file is not None
         ), "Must provide custom_init_filepath if using custom init"
         custom_vals = load_custom_init_file(solver_params.custom_init_file)
-        init_rotations = custom_vals.rotations
-        init_translations = custom_vals.translations
-        init_poses = {
-            key: make_transformation_matrix_from_theta(
-                init_rotations[key], init_translations[key]
-            )
-            for key in init_rotations.keys()
-        }
+        init_poses = custom_vals.poses
         init_landmarks = custom_vals.landmarks
         gt_ut.set_pose_init_custom(initial_values, init_poses)
         gt_ut.set_landmark_init_custom(initial_values, init_landmarks)
 
     # Visualize initial values
     # print(initial_values)
+    # print(solver_params.init_technique)
     # plot.plot_trajectory(1, initial_values, scale=0.1)
     # plot.set_axes_equal(1)
     # plt.show()
+    # print(factor_graph)
+    # raise Exception("STOP")
 
     # perform optimization
     logger.info("Initializing solver...")
