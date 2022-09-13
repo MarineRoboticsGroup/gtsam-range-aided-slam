@@ -64,10 +64,11 @@ def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
     """
     _check_square(mat)
     _check_rotation_matrix(mat, assert_test=False)
+    dim = mat.shape[0]
     S, D, Vh = la.svd(mat)
     R_so = S @ Vh
     if np.linalg.det(R_so) < 0:
-        R_so = S @ np.diag([1, -1]) @ Vh
+        R_so = S @ np.diag([1] * (dim - 1) + [-1]) @ Vh
     _check_rotation_matrix(R_so, assert_test=True)
     return R_so
 
@@ -227,12 +228,9 @@ def get_random_rotation_matrix(dim: int = 2) -> np.ndarray:
 
 
 def get_random_transformation_matrix(dim: int = 2) -> np.ndarray:
-    if dim == 2:
-        R = get_random_rotation_matrix(dim)
-        t = get_random_vector(dim)
-        return make_transformation_matrix(R, t)
-    else:
-        raise NotImplementedError("Only implemented for dim = 2")
+    R = get_random_rotation_matrix(dim)
+    t = get_random_vector(dim)
+    return make_transformation_matrix(R, t)
 
 
 def make_transformation_matrix(R: np.ndarray, t: np.ndarray) -> np.ndarray:

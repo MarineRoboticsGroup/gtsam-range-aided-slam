@@ -96,7 +96,7 @@ def solve_mle_gtsam(
         gt_ut.set_pose_init_compose(
             initial_values,
             data,
-            gt_start=True,
+            gt_start=False,
             perturb_magnitude=solver_params.init_translation_perturbation,
             perturb_rotation=solver_params.init_rotation_perturbation,
         )
@@ -121,22 +121,19 @@ def solve_mle_gtsam(
     # plt.show()
 
     # perform optimization
-    logger.info("Initializing solver...")
+    logger.debug("Initializing solver...")
 
     # initialize the ISAM2 instance
     parameters = ISAM2Params()
     parameters.setOptimizationParams(ISAM2DoglegParams())
-    logger.info(f"ISAM Params: {parameters}")
+    logger.debug(f"ISAM Params: {parameters}")
     isam_solver = ISAM2(parameters)
     isam_solver.update(factor_graph, initial_values)
 
     # run the optimization
-    logger.info("Solving ...")
+    logger.debug("Solving ...")
     t_start = time.time()
     try:
-        if solver_params.verbose:
-            logger.warning("Do not have verbose settings for GTSAM yet")
-
         gtsam_result = isam_solver.calculateEstimate()
     except Exception as e:
         logger.error("Error: ", e)
@@ -210,7 +207,7 @@ if __name__ == "__main__":
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
     logger.info(f"Loaded data: {fg_filepath}")
-    logger.info(f"# Poses: {fg.num_poses}  # Landmarks: {len(fg.landmark_variables)}")
+    fg.print_summary()
 
     solver_params = GtsamSolverParams(
         verbose=True,

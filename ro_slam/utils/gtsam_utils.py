@@ -35,6 +35,7 @@ from gtsam.gtsam import (
     NonlinearFactorGraph,
     Values,
     RangeFactor2D,
+    RangeFactor3D,
     RangeFactorPose2,
     RangeFactorPose3,
     noiseModel,
@@ -81,19 +82,32 @@ def add_distances_cost(
         pose_symbol = get_symbol_from_name(range_measure.pose_key)
         landmark_symbol = get_symbol_from_name(range_measure.landmark_key)
 
-        range_noise = noiseModel.Isotropic.Sigma(1, range_measure.stddev)
+        range_noise = noiseModel.Isotropic.Sigma(1, range_measure.variance)
 
         # If the landmark is actually secretly a pose, then we use RangeFactorPose2
         if "L" not in range_measure.landmark_key:
-            range_factor = RangeFactorPose2(
-                pose_symbol, landmark_symbol, range_measure.dist, range_noise
-            )
-            graph.push_back(range_factor)
+            if data.dimension == 2:
+                range_factor = RangeFactorPose2(
+                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                )
+            elif data.dimension == 3:
+                range_factor = RangeFactorPose3(
+                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                )
+            else:
+                raise ValueError(f"Unknown dimension: {data.dimension}")
         else:
-            range_factor = RangeFactor2D(
-                pose_symbol, landmark_symbol, range_measure.dist, range_noise
-            )
-            graph.push_back(range_factor)
+            if data.dimension == 2:
+                range_factor = RangeFactor2D(
+                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                )
+            elif data.dimension == 3:
+                range_factor = RangeFactor3D(
+                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                )
+            else:
+                raise ValueError(f"Unknown dimension: {data.dimension}")
+        graph.push_back(range_factor)
 
 
 def add_odom_cost(
@@ -343,7 +357,7 @@ def set_pose_init_custom(
     """
     logger.info("Setting pose initial points to custom")
     for pose_key, pose in custom_poses.items():
-        _check_transformation_matrix(pose)
+        _check_transformation_matrix(pose, dim=pose.shape[0] - 1)
         init_pose_variable(init_vals, pose_key, pose, dim=pose.shape[0] - 1)
 
 
@@ -436,7 +450,7 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
         pose_prior = get_gtsam_prior_from_pose_variable(pose, prior_uncertainty)
         graph.push_back(pose_prior)
 
-        break  # TODO: Pin only the first pose, remove if not needed
+        return  # TODO: Pin only the first pose, remove if not needed
 
 
 def get_gtsam_pose_from_pose_variable(
