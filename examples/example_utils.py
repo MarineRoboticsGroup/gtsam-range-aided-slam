@@ -1,9 +1,8 @@
 import os
 from os.path import join
 from typing import List, Tuple
-import re
 
-from ro_slam.utils.solver_utils import QcqpSolverParams, GtsamSolverParams
+from ro_slam.utils.solver_utils import GtsamSolverParams
 
 
 def get_folders_in_dir(path) -> List[str]:
@@ -59,41 +58,6 @@ def get_factor_graph_file_in_dir(path) -> str:
         return efg_files[0]
 
     raise ValueError(f"No factor graph file found in the directory: {path}")
-
-
-def get_qcqp_results_filename(
-    solver_params: QcqpSolverParams,
-    filetype: str = "pickle",
-) -> str:
-    """Returns the name of the results file
-
-    Args:
-        solver_params (QcqpSolverParams): the solver parameters
-
-    Returns:
-        str: the file name giving details of the solver params
-    """
-    file_name = f"{solver_params.solver}_"
-
-    file_name += f"init{solver_params.init_technique}_"
-
-    # add in indicator for SOCP relaxation
-    if solver_params.use_socp_relax:
-        file_name += "socp"
-    else:
-        file_name += "nosocp"
-    file_name += "_"
-
-    # add in indicator for orthogonal constraints
-    if solver_params.use_orthogonal_constraint:
-        file_name += "orth"
-    else:
-        file_name += "noorth"
-    file_name += "_results."
-
-    # add in results.txt and return
-    file_name += filetype
-    return file_name
 
 
 def get_gtsam_results_filename(

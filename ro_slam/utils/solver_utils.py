@@ -20,17 +20,6 @@ from ro_slam.utils.matrix_utils import (
 
 
 @attr.s(frozen=True)
-class QcqpSolverParams:
-    solver: str = attr.ib()
-    verbose: bool = attr.ib()
-    save_results: bool = attr.ib()
-    use_socp_relax: bool = attr.ib()
-    use_orthogonal_constraint: bool = attr.ib()
-    init_technique: str = attr.ib()
-    custom_init_file: Optional[str] = attr.ib(default=None)
-
-
-@attr.s(frozen=True)
 class GtsamSolverParams:
     verbose: bool = attr.ib()
     save_results: bool = attr.ib()
