@@ -240,8 +240,12 @@ def init_landmark_variable(init_vals: Values, lmk_key: str, val: np.ndarray):
     """Initialize the translation variables to the given vector
 
     Args:
+        init_vals (Values): the initial values
+        lmk_key (str): the key for the landmark
+        val (np.ndarray): the value to initialize the landmark to
     """
-    assert val.shape == (2,), "The landmark must be a 2D vector"
+    dim = val.shape[0]
+    assert dim in [2, 3], f"Invalid landmark dimension: {dim}"
     landmark_symbol = get_symbol_from_name(lmk_key)
     init_vals.insert(landmark_symbol, val)
 
@@ -265,7 +269,7 @@ def set_pose_init_compose(
     """
     logger.info("Setting pose initial points by pose composition")
 
-    if not gt_start:
+    if not gt_start and data.num_robots > 1:
         logger.warning("Using random start pose - this is not ground truth start")
 
     # iterate over measurements and init the rotations
@@ -273,7 +277,7 @@ def set_pose_init_compose(
         if len(odom_chain) == 0:
             continue  # Skip empty pose chains
         # initialize the first rotation to the identity matrix
-        if gt_start:
+        if gt_start or robot_idx == 0:
             curr_pose = data.pose_variables[robot_idx][0].transformation_matrix
         else:
             curr_pose = get_random_transformation_matrix(dim=data.dimension)
@@ -292,6 +296,13 @@ def set_pose_init_compose(
 
             # update the rotation and initialize the next rotation
             curr_pose = curr_pose @ odom_measure.transformation_matrix
+
+            # if we have perturbation parameters, then we perturb the pose
+            # if perturb_magnitude is not None and perturb_rotation is not None:
+            #     curr_pose = apply_transformation_matrix_perturbation(
+            #         curr_pose, perturb_magnitude, perturb_rotation
+            #     )
+
             curr_pose_name = odom_measure.to_pose
             init_pose_variable(init_vals, curr_pose_name, curr_pose, dim=data.dimension)
 
@@ -383,16 +394,34 @@ def set_landmark_init_gt(
 
 
 def set_landmark_init_random(init_vals: Values, data: FactorGraphData):
-    """Initialize the landmark variables to the ground truth landmarks.
+    """Initialize the landmark variables to random values.
 
     Args:
         graph (NonlinearFactorGraph): the graph to initialize the variables in
         landmarks (Dict[str, np.ndarray]): the landmark variables to initialize
     """
-    logger.info("Setting landmark initial points to ground truth")
+    logger.info("Setting landmark initial points to random values")
     for landmark_var in data.landmark_variables:
         landmark_key = landmark_var.name
-        rand_vec = get_random_vector(len(landmark_var.true_position))
+
+        x_min = data.x_min - 50
+        x_max = data.x_max + 50
+
+        y_min = data.y_min - 50
+        y_max = data.y_max + 50
+
+        if data.dimension == 2:
+            rand_vec = np.array([x_min, y_min])
+            # rand_vec = get_random_vector(dim=2, bounds=[x_min, x_max, y_min, y_max])
+        elif data.dimension == 3:
+            z_min = data.z_min - 50
+            z_max = data.z_max + 50
+            rand_vec = np.array([x_min, y_min, z_min])
+            # rand_vec = get_random_vector(
+            #     dim=3, bounds=[x_min, x_max, y_min, y_max, z_min, z_max]
+            # )
+
+        # rand_vec = np.zeros(data.dimension) # ZEROS looks good for us with goats_14
         init_landmark_variable(init_vals, landmark_key, rand_vec)
 
 
@@ -546,7 +575,7 @@ def get_solved_values(
     def _load_landmark_result_to_solved_landmarks(
         landmark_var: LANDMARK_VARIABLE_TYPES,
     ) -> None:
-        landmark_symbol = landmark.name
+        landmark_symbol = get_symbol_from_name(landmark_var.name)
         if isinstance(landmark_var, LandmarkVariable2D):
             landmark_result = result.atPoint2(landmark_symbol)
         elif isinstance(landmark_var, LandmarkVariable3D):

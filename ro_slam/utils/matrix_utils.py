@@ -3,6 +3,10 @@ import scipy.linalg as la  # type: ignore
 import scipy.spatial
 from typing import List, Tuple, Optional
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def apply_transformation_matrix_perturbation(
     transformation_matrix,
@@ -63,7 +67,6 @@ def round_to_special_orthogonal(mat: np.ndarray) -> np.ndarray:
         np.ndarray: the rounded matrix
     """
     _check_square(mat)
-    _check_rotation_matrix(mat, assert_test=False)
     dim = mat.shape[0]
     S, D, Vh = la.svd(mat)
     R_so = S @ Vh
@@ -130,7 +133,7 @@ def get_quat_from_rotation_matrix(mat: np.ndarray) -> np.ndarray:
     return quat
 
 
-def get_random_vector(dim: int) -> np.ndarray:
+def get_random_vector(dim: int, bounds: Optional[List[float]] = None) -> np.ndarray:
     """Returns a random vector of size dim
 
     Args:
@@ -139,7 +142,16 @@ def get_random_vector(dim: int) -> np.ndarray:
     Returns:
         np.ndarray: the random vector
     """
-    return np.random.rand(dim)
+    if bounds is None:
+        return np.random.rand(dim)
+    else:
+        if dim == 2:
+            x_min, x_max, y_min, y_max = bounds
+            return np.array(
+                [np.random.uniform(x_min, x_max), np.random.uniform(y_min, y_max)]
+            )
+        else:
+            raise NotImplementedError("Only 2D vectors are supported")
 
 
 def get_rotation_matrix_from_theta(theta: float) -> np.ndarray:
@@ -289,11 +301,14 @@ def _check_rotation_matrix(R: np.ndarray, assert_test: bool = False):
         # print(f"R not orthogonal: {R @ R.T}")
         if assert_test:
             raise ValueError(f"R is not orthogonal {R @ R.T}")
+        else:
+            logger.warning(f"R is not orthogonal {R @ R.T}")
 
     has_correct_det = abs(np.linalg.det(R) - 1) < 1e-3
     if not has_correct_det:
         # print(f"R det != 1: {np.linalg.det(R)}")
         if assert_test:
+            logger.warning(f"R has incorrect determinant {np.linalg.det(R)}")
             print(la.svd(R))
             print(la.eigvals(R))
             print(R)

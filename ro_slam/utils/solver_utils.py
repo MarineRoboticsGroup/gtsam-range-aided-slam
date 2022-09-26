@@ -259,7 +259,16 @@ def save_to_tum(
             quats = solved_results.rotations_quat
             for i, pose_key in enumerate(pose_chain):
                 trans_solve = translations[pose_key]
-                tx, ty, tz = trans_solve
+                if len(trans_solve) == 2:
+                    tx, ty = trans_solve
+                    tz = 0.0
+                elif len(trans_solve) == 3:
+                    tx, ty, tz = trans_solve
+                else:
+                    raise ValueError(
+                        f"Solved for translation of wrong dimension {len(trans_solve)}"
+                    )
+
                 quat_solve = quats[pose_key]
                 qx, qy, qz, qw = quat_solve
                 # TODO: Add actual timestamps

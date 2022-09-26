@@ -96,11 +96,12 @@ def solve_mle_gtsam(
         gt_ut.set_pose_init_compose(
             initial_values,
             data,
-            gt_start=False,
+            gt_start=True,
             perturb_magnitude=solver_params.init_translation_perturbation,
             perturb_rotation=solver_params.init_rotation_perturbation,
         )
-        gt_ut.set_landmark_init_gt(initial_values, data)
+        # gt_ut.set_landmark_init_gt(initial_values, data)
+        gt_ut.set_landmark_init_random(initial_values, data)
     elif solver_params.init_technique == "random":
         gt_ut.set_pose_init_random(initial_values, data)
         gt_ut.set_landmark_init_random(initial_values, data)
@@ -144,7 +145,10 @@ def solve_mle_gtsam(
 
     # get the cost at the solution
     cost = factor_graph.error(gtsam_result)
-    logger.info(f"Cost at solution: {cost}")
+
+    # print cost in scientific notation
+    logger.info(f"Cost at solution: {cost:.2e}")
+    # logger.info(f"Cost at solution: {cost}")
 
     # get the results and save if desired
     solution_vals = gt_ut.get_solved_values(gtsam_result, tot_time, data)
