@@ -33,7 +33,7 @@ class GtsamSolverParams:
 class VariableValues:
     poses: Dict[str, np.ndarray] = attr.ib()
     landmarks: Dict[str, np.ndarray] = attr.ib()
-    distances: Optional[Dict[Tuple[str, str], np.ndarray]] = attr.ib()
+    distances: Dict[Tuple[str, str], float] = attr.ib()
 
     @poses.validator
     def _check_poses(self, attribute, value: Dict[str, np.ndarray]):
@@ -262,6 +262,8 @@ def save_to_tum(
                 qx, qy, qz, qw = quat_solve
                 # TODO: Add actual timestamps
                 f.write(f"{i} {tx} {ty} {tz} {qx} {qy} {qz} {qw}\n")
+
+        logger.info(f"Results saved to: {modified_path}\n")
 
 
 def check_rotations(result, rotations: Dict[str, np.ndarray]):

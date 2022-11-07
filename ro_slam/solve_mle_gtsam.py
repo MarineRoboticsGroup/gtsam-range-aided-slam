@@ -79,6 +79,7 @@ def solve_mle_gtsam(
     gt_ut.add_distances_cost(factor_graph, data)
     gt_ut.add_odom_cost(factor_graph, data)
     gt_ut.add_loop_closure_cost(factor_graph, data)
+    gt_ut.add_landmark_prior_cost(factor_graph, data)
 
     # pin first pose at origin
     gt_ut.pin_first_pose(factor_graph, data)
@@ -100,8 +101,8 @@ def solve_mle_gtsam(
             perturb_magnitude=solver_params.init_translation_perturbation,
             perturb_rotation=solver_params.init_rotation_perturbation,
         )
-        # gt_ut.set_landmark_init_gt(initial_values, data)
-        gt_ut.set_landmark_init_random(initial_values, data)
+        gt_ut.set_landmark_init_gt(initial_values, data)
+        # gt_ut.set_landmark_init_random(initial_values, data)
     elif solver_params.init_technique == "random":
         gt_ut.set_pose_init_random(initial_values, data)
         gt_ut.set_landmark_init_random(initial_values, data)
@@ -145,6 +146,11 @@ def solve_mle_gtsam(
 
     # get the cost at the solution
     cost = factor_graph.error(gtsam_result)
+
+    # get the cost for each factor
+    # gt_ut.generate_detailed_report_of_factor_costs(
+    #     factor_graph, gtsam_result
+    # )
 
     # print cost in scientific notation
     logger.info(f"Cost at solution: {cost:.2e}")

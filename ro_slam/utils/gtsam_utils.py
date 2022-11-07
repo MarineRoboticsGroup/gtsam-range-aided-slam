@@ -1,4 +1,8 @@
 import numpy as np
+import py
+import io
+import sys
+from contextlib import redirect_stdout, redirect_stderr
 from typing import List, Tuple, Union, Dict, Optional
 import tqdm  # type: ignore
 import re
@@ -47,6 +51,7 @@ from gtsam.gtsam import (
     PriorFactorPose2,
     PriorFactorPose3,
     PriorFactorPoint2,
+    PriorFactorPoint3,
     symbol,
 )
 
@@ -212,6 +217,34 @@ def add_loop_closure_cost(
         j_symbol = get_symbol_from_name(loop_measure.to_pose)
         loop_factor = get_pose_to_pose_factor(loop_measure, i_symbol, j_symbol)
         graph.push_back(loop_factor)
+
+
+def add_landmark_prior_cost(
+    graph: NonlinearFactorGraph,
+    data: FactorGraphData,
+):
+    """Add the cost associated with the landmark priors.
+
+    Args:
+        graph (NonlinearFactorGraph): the graph to add the cost to
+        data (FactorGraphData): the factor graph data
+
+    """
+    for landmark_prior in data.landmark_priors:
+        landmark_symbol = get_symbol_from_name(landmark_prior.name)
+        landmark_noise = noiseModel.Diagonal.Sigmas(np.diag(landmark_prior.covariance))
+        if data.dimension == 2:
+            landmark_prior_factor = PriorFactorPoint2(
+                landmark_symbol, landmark_prior.position, landmark_noise
+            )
+        elif data.dimension == 3:
+            raise NotImplementedError("3D landmark priors not implemented")
+            landmark_prior_factor = PriorFactorPoint3(
+                landmark_symbol, landmark_prior.position, landmark_noise
+            )
+        else:
+            raise ValueError(f"Unknown dimension: {data.dimension}")
+        graph.push_back(landmark_prior_factor)
 
 
 ##### Initialization strategies #####
@@ -542,6 +575,43 @@ def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> No
 ##### Misc
 
 
+def generate_detailed_report_of_factor_costs(
+    graph: NonlinearFactorGraph, values: Values
+) -> None:
+    """[summary]
+
+    Args:
+        graph (NonlinearFactorGraph): [description]
+        values (Values): [description]
+    """
+    # call printErrors to and save the output to a string
+    capture = py.io.StdCaptureFD()
+    graph.printErrors(values)
+    output, error = capture.reset()
+    split_output = output.splitlines()
+
+    for idx in range(len(split_output)):
+        if "RangeFactor" in split_output[idx]:
+            info = [split_output[idx + cnt] for cnt in [0, 1, 3]]
+            print("\n".join(info), end="\n\n")
+
+    # get the symbol for A95 and A96
+    a95_symbol = get_symbol_from_name("A95")
+    a96_symbol = get_symbol_from_name("A96")
+
+    # print the values of A95 and A96
+    print(f"A95: {values.atPose2(a95_symbol)}")
+    print(f"A96: {values.atPose2(a96_symbol)}")
+
+    # print the value of A0
+    a0_symbol = get_symbol_from_name("A0")
+    print(f"A0: {values.atPose2(a0_symbol)}")
+
+    # print the value of L0
+    l0_symbol = get_symbol_from_name("L0")
+    print(f"L0: {values.atPoint2(l0_symbol)}")
+
+
 def get_solved_values(
     result: Values, time: float, data: FactorGraphData
 ) -> SolverResults:
@@ -549,20 +619,17 @@ def get_solved_values(
     Returns the solved values from the result
 
     Args:
-        result (Drake Result Object): the result of the solution
-        translations (Dict[str, np.ndarray]): the translation variables
-        rotations (Dict[str, np.ndarray]): the rotation variables
-        landmarks (Dict[str, np.ndarray]): the landmark variables
+        result (Values): The result from the solver
+        time (float): The time it took to solve the graph
+        data (FactorGraphData): The data used to formulate the problem
 
     Returns:
-        Dict[str, np.ndarray]: the solved translations
-        Dict[str, np.ndarray]: the solved rotations
-        Dict[str, np.ndarray]: the solved landmarks
-        Dict[str, np.ndarray]: the solved distances
+        SolverResults: The results of the solver
     """
     solved_poses: Dict[str, np.ndarray] = {}
     solved_landmarks: Dict[str, np.ndarray] = {}
-    solved_distances = None
+    solved_distances: Dict[Tuple[str, str], float] = {}
+    dim = data.dimension
 
     def _load_pose_result_to_solved_poses(pose_var: POSE_VARIABLE_TYPES) -> None:
         pose_symbol = get_symbol_from_name(pose_var.name)
@@ -570,7 +637,8 @@ def get_solved_values(
             pose_result = result.atPose2(pose_symbol)
         elif isinstance(pose_var, PoseVariable3D):
             pose_result = result.atPose3(pose_symbol)
-        solved_poses[pose_var.name] = pose_result.matrix()
+        pose_mat = pose_result.matrix()
+        solved_poses[pose_var.name] = pose_mat
 
     def _load_landmark_result_to_solved_landmarks(
         landmark_var: LANDMARK_VARIABLE_TYPES,
@@ -582,12 +650,28 @@ def get_solved_values(
             landmark_result = result.atPoint3(landmark_symbol)
         solved_landmarks[landmark_var.name] = landmark_result
 
+    def _load_distance_result_to_solved_distances(assoc: Tuple[str, str]):
+        trans1 = solved_poses[assoc[0]][:dim, -1]
+
+        if assoc[1] in solved_poses:
+            trans2 = solved_poses[assoc[1]][:dim, -1]
+        elif assoc[1] in solved_landmarks:
+            trans2 = solved_landmarks[assoc[1]]
+        else:
+            raise ValueError(f"Invalid association: {assoc}")
+
+        solved_distances[assoc] = np.linalg.norm(trans1 - trans2)
+
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
             _load_pose_result_to_solved_poses(pose_var)
 
     for landmark in data.landmark_variables:
         _load_landmark_result_to_solved_landmarks(landmark)
+
+    for range_measurement in data.range_measurements:
+        association = range_measurement.association
+        _load_distance_result_to_solved_distances(association)
 
     return SolverResults(
         VariableValues(
