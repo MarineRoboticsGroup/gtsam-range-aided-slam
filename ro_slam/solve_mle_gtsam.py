@@ -1,6 +1,5 @@
 import re
 import time
-import numpy as np
 
 import logging, coloredlogs
 
@@ -29,16 +28,16 @@ from gtsam.utils import plot
 import matplotlib.pyplot as plt
 
 from py_factor_graph.factor_graph import FactorGraphData
-
-from ro_slam.utils.plot_utils import plot_error
-from ro_slam.utils.solver_utils import (
-    GtsamSolverParams,
+from py_factor_graph.utils.solver_utils import (
     SolverResults,
     save_results_to_file,
     load_custom_init_file,
 )
-from ro_slam.utils.matrix_utils import make_transformation_matrix_from_theta
 
+from ro_slam.utils.plot_utils import plot_error
+from ro_slam.utils.solver_utils import (
+    GtsamSolverParams,
+)
 import ro_slam.utils.gtsam_utils as gt_ut
 
 
@@ -62,11 +61,6 @@ def solve_mle_gtsam(
         use_orthogonal_constraint (bool): whether to use orthogonal
             constraint on rotation variables
     """
-    init_options = ["gt", "compose", "random", "custom"]
-    assert (
-        solver_params.init_technique in init_options
-    ), f"Invalid init_technique, must be from: {init_options}"
-
     unconnected_variables = data.unconnected_variable_names
     assert (
         len(unconnected_variables) == 0

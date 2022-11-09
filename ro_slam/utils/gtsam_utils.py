@@ -56,7 +56,7 @@ from gtsam.gtsam import (
 )
 
 from py_factor_graph.factor_graph import FactorGraphData
-from ro_slam.utils.matrix_utils import (
+from py_factor_graph.utils.matrix_utils import (
     _check_transformation_matrix,
     get_random_vector,
     get_random_transformation_matrix,
@@ -64,7 +64,7 @@ from ro_slam.utils.matrix_utils import (
     get_translation_from_transformation_matrix,
     apply_transformation_matrix_perturbation,
 )
-from ro_slam.utils.solver_utils import SolverResults, VariableValues
+from py_factor_graph.utils.solver_utils import SolverResults, VariableValues
 
 
 ##### Add costs #####
