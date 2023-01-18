@@ -24,9 +24,6 @@ from gtsam.gtsam import (
     Values,
 )
 
-from gtsam.utils import plot
-import matplotlib.pyplot as plt
-
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.solver_utils import (
     SolverResults,
@@ -61,6 +58,8 @@ def solve_mle_gtsam(
         use_orthogonal_constraint (bool): whether to use orthogonal
             constraint on rotation variables
     """
+    logger.debug(f"Running GTSAM solver with {solver_params}")
+
     unconnected_variables = data.unconnected_variable_names
     assert (
         len(unconnected_variables) == 0
@@ -111,10 +110,8 @@ def solve_mle_gtsam(
         gt_ut.set_landmark_init_custom(initial_values, init_landmarks)
 
     # Visualize initial values
+    VISUALIZE_INIT = False
     # print(initial_values)
-    # plot.plot_trajectory(1, initial_values, scale=0.1)
-    # plot.set_axes_equal(1)
-    # plt.show()
 
     # perform optimization
     logger.debug("Initializing solver...")
@@ -136,7 +133,7 @@ def solve_mle_gtsam(
         return
     t_end = time.time()
     tot_time = t_end - t_start
-    logger.info(f"Solved in {tot_time} seconds")
+    logger.debug(f"Solved in {tot_time} seconds")
 
     # get the cost at the solution
     cost = factor_graph.error(gtsam_result)
@@ -147,11 +144,11 @@ def solve_mle_gtsam(
     # )
 
     # print cost in scientific notation
-    logger.info(f"Cost at solution: {cost:.2e}")
+    logger.debug(f"Cost at solution: {cost:.2e}")
     # logger.info(f"Cost at solution: {cost}")
 
     # get the results and save if desired
-    solution_vals = gt_ut.get_solved_values(gtsam_result, tot_time, data)
+    solution_vals = gt_ut.get_solved_values(gtsam_result, tot_time, data, cost)
     if solver_params.save_results:
         save_results_to_file(
             solution_vals,
@@ -210,7 +207,7 @@ if __name__ == "__main__":
         fg = parse_efg_file(fg_filepath)
     else:
         raise ValueError(f"Unknown file type: {fg_filepath}")
-    logger.info(f"Loaded data: {fg_filepath}")
+    logger.debug(f"Loaded data: {fg_filepath}")
     fg.print_summary()
 
     solver_params = GtsamSolverParams(

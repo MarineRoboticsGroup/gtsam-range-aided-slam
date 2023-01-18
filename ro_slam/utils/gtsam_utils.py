@@ -300,7 +300,7 @@ def set_pose_init_compose(
         perturb_magnitude (float, optional): the magnitude of the perturbation
         perturb_rotation (float, optional): the magnitude of the perturbation
     """
-    logger.info("Setting pose initial points by pose composition")
+    logger.debug("Setting pose initial points by pose composition")
 
     if not gt_start and data.num_robots > 1:
         logger.warning("Using random start pose - this is not ground truth start")
@@ -357,7 +357,7 @@ def set_pose_init_gt(
         to apply
         perturb_rotation (Optional[float]): the rotation of the perturbation
     """
-    logger.info("Setting pose initial points to ground truth")
+    logger.debug("Setting pose initial points to ground truth")
     for pose_chain in data.pose_variables:
         for pose_idx, pose_var in enumerate(pose_chain):
             pose_key = pose_var.name
@@ -380,7 +380,7 @@ def set_pose_init_random(init_vals: Values, data: FactorGraphData) -> None:
         graph (NonlinearFactorGraph): the graph to initialize the variables in
         rotations (Dict[str, np.ndarray]): the rotation variables to initialize
     """
-    logger.info("Setting pose initial points to random")
+    logger.debug("Setting pose initial points to random")
 
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
@@ -399,7 +399,7 @@ def set_pose_init_custom(
         rotations (Dict[str, np.ndarray]): [description]
         custom_rotations (Dict[str, np.ndarray]): [description]
     """
-    logger.info("Setting pose initial points to custom")
+    logger.debug("Setting pose initial points to custom")
     for pose_key, pose in custom_poses.items():
         _check_transformation_matrix(pose, dim=pose.shape[0] - 1)
         init_pose_variable(init_vals, pose_key, pose, dim=pose.shape[0] - 1)
@@ -415,7 +415,7 @@ def set_landmark_init_gt(
         landmarks (Dict[str, np.ndarray]): the landmark variables to initialize
         data (FactorGraphData): the factor graph data to use to initialize the landmarks
     """
-    logger.info("Setting landmark initial points to ground truth")
+    logger.debug("Setting landmark initial points to ground truth")
     for true_landmark in data.landmark_variables:
 
         # get landmark position
@@ -433,7 +433,7 @@ def set_landmark_init_random(init_vals: Values, data: FactorGraphData):
         graph (NonlinearFactorGraph): the graph to initialize the variables in
         landmarks (Dict[str, np.ndarray]): the landmark variables to initialize
     """
-    logger.info("Setting landmark initial points to random values")
+    logger.debug("Setting landmark initial points to random values")
     for landmark_var in data.landmark_variables:
         landmark_key = landmark_var.name
 
@@ -469,7 +469,7 @@ def set_landmark_init_custom(
         landmarks (Dict[str, np.ndarray]): [description]
         custom_landmarks (Dict[str, np.ndarray]): [description]
     """
-    logger.info("Setting landmark initial points to custom")
+    logger.debug("Setting landmark initial points to custom")
     for landmark_key, landmark_var in custom_landmarks.items():
         init_landmark_variable(init_vals, landmark_key, landmark_var)
 
@@ -512,7 +512,7 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
         pose_prior = get_gtsam_prior_from_pose_variable(pose, prior_uncertainty)
         graph.push_back(pose_prior)
 
-        return  # TODO: Pin only the first pose, remove if not needed
+        # return  # TODO: Pin only the first pose, remove if not needed
 
 
 def get_gtsam_pose_from_pose_variable(
@@ -612,8 +612,72 @@ def generate_detailed_report_of_factor_costs(
     print(f"L0: {values.atPoint2(l0_symbol)}")
 
 
+def get_factor_graph_from_pyfg_data(data: FactorGraphData) -> NonlinearFactorGraph:
+
+    factor_graph = NonlinearFactorGraph()
+
+    # form objective function
+    add_distances_cost(factor_graph, data)
+    add_odom_cost(factor_graph, data)
+    add_loop_closure_cost(factor_graph, data)
+    add_landmark_prior_cost(factor_graph, data)
+
+    # pin first pose at origin
+    pin_first_pose(factor_graph, data)
+
+    return factor_graph
+
+
+def get_gtsam_values_from_variable_values(values: VariableValues, dim: int) -> Values:
+    """[summary]
+
+    Args:
+        values (VariableValues): [description]
+        dim (int): [description]
+
+    Returns:
+        Values: [description]
+    """
+    gtsam_values = Values()
+    assert dim in [2, 3], f"Invalid dimension: {dim}"
+
+    for pose_key, pose_val in values.poses.items():
+        _check_transformation_matrix(pose_val, dim=dim)
+        if dim == 2:
+            gtsam_pose = get_pose2_from_matrix(pose_val)
+        elif dim == 3:
+            gtsam_pose = get_pose3_from_matrix(pose_val)
+        pose_symbol = get_symbol_from_name(pose_key)
+        gtsam_values.insert(pose_symbol, gtsam_pose)
+
+    for landmark_key, landmark_val in values.landmarks.items():
+        assert (
+            dim == landmark_val.shape[0]
+        ), f"Invalid landmark dimension: {landmark_val.shape}"
+        landmark_symbol = get_symbol_from_name(landmark_key)
+        gtsam_values.insert(landmark_symbol, landmark_val)
+
+    return gtsam_values
+
+
+def get_cost_at_variable_values(pyfg: FactorGraphData, values: VariableValues) -> float:
+    """[summary]
+
+    Args:
+        pyfg (FactorGraphData): [description]
+        values (VariableValues): [description]
+
+    Returns:
+        float: [description]
+    """
+    graph = get_factor_graph_from_pyfg_data(pyfg)
+    gtsam_values = get_gtsam_values_from_variable_values(values, pyfg.dimension)
+    cost = graph.error(gtsam_values)
+    return cost
+
+
 def get_solved_values(
-    result: Values, time: float, data: FactorGraphData
+    result: Values, time: float, data: FactorGraphData, cost: float
 ) -> SolverResults:
     """
     Returns the solved values from the result
@@ -622,6 +686,7 @@ def get_solved_values(
         result (Values): The result from the solver
         time (float): The time it took to solve the graph
         data (FactorGraphData): The data used to formulate the problem
+        cost (float): The cost of the solution
 
     Returns:
         SolverResults: The results of the solver
@@ -682,6 +747,7 @@ def get_solved_values(
         total_time=time,
         solved=True,
         pose_chain_names=data.get_pose_chain_names(),
+        solver_cost=cost,
     )
 
 
