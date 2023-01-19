@@ -20,6 +20,8 @@ from gtsam.gtsam import (
     NonlinearFactorGraph,
     ISAM2Params,
     ISAM2DoglegParams,
+    LevenbergMarquardtParams,
+    LevenbergMarquardtOptimizer,
     ISAM2,
     Values,
 )
@@ -116,18 +118,42 @@ def solve_mle_gtsam(
     # perform optimization
     logger.debug("Initializing solver...")
 
-    # initialize the ISAM2 instance
-    parameters = ISAM2Params()
-    parameters.setOptimizationParams(ISAM2DoglegParams())
-    logger.debug(f"ISAM Params: {parameters}")
-    isam_solver = ISAM2(parameters)
-    isam_solver.update(factor_graph, initial_values)
+    solver_type = "lm"
+    if solver_type == "isam2":
+        parameters = ISAM2Params()
+        dogleg_params = ISAM2DoglegParams()
+        dogleg_params.setWildfireThreshold(1e-10)
+        parameters.setOptimizationParams(dogleg_params)
+        parameters.setFactorization("QR")
+        # logger.info(f"ISAM Params: {parameters}")
+        solver = ISAM2(parameters)
+        solver.update(factor_graph, initial_values)
+    elif solver_type == "lm":
+        lm_params = LevenbergMarquardtParams()
+        lm_params.setVerbosityLM("SUMMARY")
+        # lm_params.setlambdaLowerBound(1e-1)
+        # lm_params.setAbsoluteErrorTol(1e-8)
+        # lm_params.setRelativeErrorTol(1e-8)
+        lm_params.setMaxIterations(300)
+        # lm_params.setDiagonalDamping(True)
+        solver = LevenbergMarquardtOptimizer(factor_graph, initial_values, lm_params)
+        # logger.info(f"LM Params: {lm_params}")
 
     # run the optimization
     logger.debug("Solving ...")
     t_start = time.time()
     try:
-        gtsam_result = isam_solver.calculateEstimate()
+        if isinstance(solver, ISAM2):
+            gtsam_result = solver.calculateBestEstimate()
+            gradient = solver.gradientAtZero()
+        elif isinstance(solver, LevenbergMarquardtOptimizer):
+            gtsam_result = solver.optimize()
+            graph = solver.iterate()
+            gradient = graph.gradientAtZero()
+
+        # get the norm of the gradient
+        gradient_norm = gradient.norm()
+        print(f"Gradient norm: {gradient_norm}")
     except Exception as e:
         logger.error("Error: ", e)
         return

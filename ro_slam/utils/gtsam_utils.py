@@ -54,6 +54,7 @@ from gtsam.gtsam import (
     PriorFactorPoint3,
     symbol,
 )
+from ro_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.matrix_utils import (
@@ -164,8 +165,22 @@ def get_pose_to_pose_factor(
     odom_noise = noiseModel.Diagonal.Sigmas(np.diag(odom_measure.covariance))
     rel_pose = get_relative_pose_from_odom_measure(odom_measure)
     if isinstance(odom_measure, PoseMeasurement2D):
-        odom_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, odom_noise)
+        # odom_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, odom_noise)
+        # return odom_factor
+        relative_rotation = odom_measure.rotation_matrix
+        relative_translation = odom_measure.translation_vector
+        rot_precision = odom_measure.rotation_precision
+        trans_precision = odom_measure.translation_precision
+        odom_factor = RelativePose2dFactor(
+            i_symbol,
+            j_symbol,
+            relative_rotation,
+            relative_translation,
+            rot_precision,
+            trans_precision,
+        )
     elif isinstance(odom_measure, PoseMeasurement3D):
+        raise NotImplementedError("Not implemented SE-Sync factors for 3D")
         odom_factor = BetweenFactorPose3(i_symbol, j_symbol, rel_pose, odom_noise)
     return odom_factor
 
@@ -512,7 +527,7 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
         pose_prior = get_gtsam_prior_from_pose_variable(pose, prior_uncertainty)
         graph.push_back(pose_prior)
 
-        # return  # TODO: Pin only the first pose, remove if not needed
+        return  # TODO: Pin only the first pose, remove if not needed
 
 
 def get_gtsam_pose_from_pose_variable(
