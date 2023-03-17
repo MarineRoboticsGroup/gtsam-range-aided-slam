@@ -44,7 +44,7 @@ def solve_mle_gtsam(
     data: FactorGraphData,
     solver_params: GtsamSolverParams,
     results_filepath: str,
-):
+) -> SolverResults:
     """
     Takes the data describing the problem and returns the MLE solution to the
     poses and landmark positions
@@ -59,6 +59,9 @@ def solve_mle_gtsam(
             variables
         use_orthogonal_constraint (bool): whether to use orthogonal
             constraint on rotation variables
+
+    returns:
+        SolverResults: the results of the solver
     """
     logger.debug(f"Running GTSAM solver with {solver_params}")
 
@@ -196,6 +199,8 @@ def solve_mle_gtsam(
     # else:
     #     # do not use custom init so we just compare to GT pose
     #     plot_error(data, solution_vals, grid_size)
+
+    return solution_vals
 
 
 if __name__ == "__main__":

@@ -740,7 +740,8 @@ def get_solved_values(
         else:
             raise ValueError(f"Invalid association: {assoc}")
 
-        solved_distances[assoc] = np.linalg.norm(trans1 - trans2)
+        diff = trans1 - trans2
+        solved_distances[assoc] = diff / np.linalg.norm(diff)
 
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
@@ -755,6 +756,7 @@ def get_solved_values(
 
     return SolverResults(
         VariableValues(
+            dim=data.dimension,
             poses=solved_poses,
             landmarks=solved_landmarks,
             distances=solved_distances,
