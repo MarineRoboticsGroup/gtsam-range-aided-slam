@@ -20,6 +20,8 @@ from py_factor_graph.variables import (
     LANDMARK_VARIABLE_TYPES,
 )
 
+VALID_BETWEEN_FACTOR_MODELS = ["SESync", "between"]
+
 import logging, coloredlogs
 
 logger = logging.getLogger(__name__)
@@ -55,6 +57,7 @@ from gtsam.gtsam import (
     symbol,
 )
 from ro_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
+from ro_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.matrix_utils import (
@@ -119,6 +122,7 @@ def add_distances_cost(
 def add_odom_cost(
     graph: NonlinearFactorGraph,
     data: FactorGraphData,
+    factor_type: str = "between",
 ):
     """Add the cost associated with the odometry measurements as:
 
@@ -135,6 +139,9 @@ def add_odom_cost(
         data (FactorGraphData): the factor graph data
 
     """
+    assert (
+        factor_type in VALID_BETWEEN_FACTOR_MODELS
+    ), f"Unknown factor type: {factor_type}. Valid types are: {VALID_BETWEEN_FACTOR_MODELS}"
     for odom_chain in data.odom_measurements:
         for odom_measure in odom_chain:
 
@@ -143,14 +150,57 @@ def add_odom_cost(
             j_symbol = get_symbol_from_name(odom_measure.to_pose)
 
             # add the factor to the factor graph
-            odom_factor = get_pose_to_pose_factor(odom_measure, i_symbol, j_symbol)
+            odom_factor = get_pose_to_pose_factor(
+                odom_measure, i_symbol, j_symbol, factor_type
+            )
             graph.push_back(odom_factor)
+
+
+def _get_between_factor(
+    odom_measure: POSE_MEASUREMENT_TYPES, i_sym: int, j_sym: int
+) -> Union[BetweenFactorPose2, BetweenFactorPose3]:
+    odom_noise = noiseModel.Diagonal.Sigmas(np.diag(odom_measure.covariance))
+    rel_pose = get_relative_pose_from_odom_measure(odom_measure)
+    if isinstance(odom_measure, PoseMeasurement2D):
+        odom_factor = BetweenFactorPose2(i_sym, j_sym, rel_pose, odom_noise)
+    elif isinstance(odom_measure, PoseMeasurement3D):
+        odom_factor = BetweenFactorPose3(i_sym, j_sym, rel_pose, odom_noise)
+    else:
+        raise ValueError(f"Unknown measurement type: {type(odom_measure)}")
+    return odom_factor
+
+
+def _get_between_se_sync_factor(
+    odom_measure: POSE_MEASUREMENT_TYPES, i_sym: int, j_sym: int
+) -> Union[RelativePose2dFactor, RelativePose3dFactor]:
+    if isinstance(odom_measure, PoseMeasurement2D):
+        odom_factor = RelativePose2dFactor(
+            i_sym,
+            j_sym,
+            odom_measure.rotation_matrix,
+            odom_measure.translation_vector,
+            odom_measure.rotation_precision,
+            odom_measure.translation_precision,
+        )
+    elif isinstance(odom_measure, PoseMeasurement3D):
+        odom_factor = RelativePose3dFactor(
+            i_sym,
+            j_sym,
+            odom_measure.rotation_matrix,
+            odom_measure.translation_vector,
+            odom_measure.rotation_precision,
+            odom_measure.translation_precision,
+        )
+    else:
+        raise ValueError(f"Unknown measurement type: {type(odom_measure)}")
+    return odom_factor
 
 
 def get_pose_to_pose_factor(
     odom_measure: POSE_MEASUREMENT_TYPES,
     i_symbol: int,
     j_symbol: int,
+    factor_model: str = "SESync",
 ) -> Union[BetweenFactorPose2, BetweenFactorPose3]:
     """Get the odometry factor from the odometry measurement.
 
@@ -162,27 +212,19 @@ def get_pose_to_pose_factor(
     Returns:
         Union[BetweenFactorPose2, BetweenFactorPose3]: the relative pose factor
     """
-    odom_noise = noiseModel.Diagonal.Sigmas(np.diag(odom_measure.covariance))
-    rel_pose = get_relative_pose_from_odom_measure(odom_measure)
-    if isinstance(odom_measure, PoseMeasurement2D):
-        # odom_factor = BetweenFactorPose2(i_symbol, j_symbol, rel_pose, odom_noise)
-        # return odom_factor
-        relative_rotation = odom_measure.rotation_matrix
-        relative_translation = odom_measure.translation_vector
-        rot_precision = odom_measure.rotation_precision
-        trans_precision = odom_measure.translation_precision
-        odom_factor = RelativePose2dFactor(
-            i_symbol,
-            j_symbol,
-            relative_rotation,
-            relative_translation,
-            rot_precision,
-            trans_precision,
-        )
-    elif isinstance(odom_measure, PoseMeasurement3D):
-        raise NotImplementedError("Not implemented SE-Sync factors for 3D")
-        odom_factor = BetweenFactorPose3(i_symbol, j_symbol, rel_pose, odom_noise)
+    assert (
+        factor_model in VALID_BETWEEN_FACTOR_MODELS
+    ), f"Invalid factor model: {factor_model}. Valid models are: {VALID_BETWEEN_FACTOR_MODELS}"
+    if factor_model == "SESync":
+        odom_factor = _get_between_se_sync_factor(odom_measure, i_symbol, j_symbol)
+    elif factor_model == "between":
+        odom_factor = _get_between_factor(odom_measure, i_symbol, j_symbol)
+    else:
+        raise ValueError(f"Unknown factor model: {factor_model}")
     return odom_factor
+
+
+#    return odom_factor
 
 
 def get_relative_pose_from_odom_measure(odom_measure: POSE_MEASUREMENT_TYPES):
@@ -209,6 +251,7 @@ def get_relative_pose_from_odom_measure(odom_measure: POSE_MEASUREMENT_TYPES):
 def add_loop_closure_cost(
     graph: NonlinearFactorGraph,
     data: FactorGraphData,
+    factor_type: str = "between",
 ):
     """Add the cost associated with the loop closure measurements as:
 
@@ -225,12 +268,17 @@ def add_loop_closure_cost(
         data (FactorGraphData): the factor graph data
 
     """
+    assert (
+        factor_type in VALID_BETWEEN_FACTOR_MODELS
+    ), f"Invalid factor model: {factor_type}. Valid models are: {VALID_BETWEEN_FACTOR_MODELS}"
     for loop_measure in data.loop_closure_measurements:
 
         # the indices of the related poses in the odometry measurement
         i_symbol = get_symbol_from_name(loop_measure.base_pose)
         j_symbol = get_symbol_from_name(loop_measure.to_pose)
-        loop_factor = get_pose_to_pose_factor(loop_measure, i_symbol, j_symbol)
+        loop_factor = get_pose_to_pose_factor(
+            loop_measure, i_symbol, j_symbol, factor_type
+        )
         graph.push_back(loop_factor)
 
 

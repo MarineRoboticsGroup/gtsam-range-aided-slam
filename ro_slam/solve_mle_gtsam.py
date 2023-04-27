@@ -1,5 +1,6 @@
 import re
 import time
+from typing import Optional
 
 import logging, coloredlogs
 
@@ -43,27 +44,26 @@ import ro_slam.utils.gtsam_utils as gt_ut
 def solve_mle_gtsam(
     data: FactorGraphData,
     solver_params: GtsamSolverParams,
-    results_filepath: str,
+    results_filepath: Optional[str] = None,
 ) -> SolverResults:
     """
     Takes the data describing the problem and returns the MLE solution to the
     poses and landmark positions
 
-    args:
+    Args:
         data (FactorGraphData): the data describing the problem
         solver (str): the solver to use [ipopt, snopt, default]
         verbose (bool): whether to show verbose solver output
         save_results (bool): whether to save the results to a file
         results_filepath (str): the path to save the results to
-        use_socp_relax (bool): whether to use socp relaxation on distance
-            variables
-        use_orthogonal_constraint (bool): whether to use orthogonal
-            constraint on rotation variables
 
-    returns:
+    Returns:
         SolverResults: the results of the solver
     """
     logger.debug(f"Running GTSAM solver with {solver_params}")
+
+    if solver_params.save_results and results_filepath is None:
+        raise ValueError("Must provide a filepath to save results to")
 
     unconnected_variables = data.unconnected_variable_names
     assert (
@@ -75,8 +75,9 @@ def solve_mle_gtsam(
 
     # form objective function
     gt_ut.add_distances_cost(factor_graph, data)
-    gt_ut.add_odom_cost(factor_graph, data)
-    gt_ut.add_loop_closure_cost(factor_graph, data)
+    between_factor_type = "between"
+    gt_ut.add_odom_cost(factor_graph, data, factor_type=between_factor_type)
+    gt_ut.add_loop_closure_cost(factor_graph, data, factor_type=between_factor_type)
     gt_ut.add_landmark_prior_cost(factor_graph, data)
 
     # pin first pose at origin
@@ -121,7 +122,7 @@ def solve_mle_gtsam(
     # perform optimization
     logger.debug("Initializing solver...")
 
-    solver_type = "lm"
+    solver_type = "isam2"
     if solver_type == "isam2":
         parameters = ISAM2Params()
         dogleg_params = ISAM2DoglegParams()
@@ -137,7 +138,7 @@ def solve_mle_gtsam(
         # lm_params.setlambdaLowerBound(1e-1)
         # lm_params.setAbsoluteErrorTol(1e-8)
         # lm_params.setRelativeErrorTol(1e-8)
-        lm_params.setMaxIterations(300)
+        # lm_params.setMaxIterations(300)
         # lm_params.setDiagonalDamping(True)
         solver = LevenbergMarquardtOptimizer(factor_graph, initial_values, lm_params)
         # logger.info(f"LM Params: {lm_params}")
@@ -187,11 +188,11 @@ def solve_mle_gtsam(
         )
 
     # get the grid size to aid in plotting
-    grid_size_search = re.search(r"\d+_grid", results_filepath)
-    if grid_size_search is not None:
-        grid_size = int(grid_size_search.group(0).split("_")[0])
-    else:
-        grid_size = 1
+    # grid_size_search = re.search(r"\d+_grid", results_filepath)
+    # if grid_size_search is not None:
+    #     grid_size = int(grid_size_search.group(0).split("_")[0])
+    # else:
+    #     grid_size = 1
 
     # perform plotting
     # if solver_params.init_technique == "custom":
