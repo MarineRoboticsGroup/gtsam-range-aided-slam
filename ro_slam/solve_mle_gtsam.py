@@ -157,19 +157,7 @@ def solve_mle_gtsam(
             filepath=results_filepath,
         )
 
-    # get the grid size to aid in plotting
-    grid_size_search = re.search(r"\d+_grid", results_filepath)
-    if grid_size_search is not None:
-        grid_size = int(grid_size_search.group(0).split("_")[0])
-    else:
-        grid_size = 1
-
-    # perform plotting
-    # if solver_params.init_technique == "custom":
-    #     plot_error(data, solution_vals, grid_size, custom_vals)
-    # else:
-    #     # do not use custom init so we just compare to GT pose
-    #     plot_error(data, solution_vals, grid_size)
+    return solution_vals
 
 
 if __name__ == "__main__":
