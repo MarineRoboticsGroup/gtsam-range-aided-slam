@@ -69,8 +69,6 @@ from py_factor_graph.utils.solver_utils import SolverResults, VariableValues
 
 @attr.s(frozen=True)
 class GtsamSolverParams:
-    verbose: bool = attr.ib()
-    save_results: bool = attr.ib()
     init_technique: str = attr.ib()
     custom_init_file: Optional[str] = attr.ib(default=None)
     init_translation_perturbation: Optional[float] = attr.ib(default=None)
@@ -743,7 +741,7 @@ def get_cost_at_variable_values(pyfg: FactorGraphData, values: VariableValues) -
 
 
 def get_solved_values(
-    result: Values, time: float, data: FactorGraphData, cost: float
+    result: Values, time: float, data: FactorGraphData, cost: Optional[float] = None
 ) -> SolverResults:
     """
     Returns the solved values from the result

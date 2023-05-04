@@ -16,13 +16,8 @@ coloredlogs.install(
     field_styles=field_styles,
 )
 
-from gtsam.gtsam import (
-    NonlinearFactorGraph,
-    ISAM2Params,
-    ISAM2DoglegParams,
-    ISAM2,
-    Values,
-)
+from gtsam.gtsam import NonlinearFactorGraph, Values
+from typing import List, Optional, Union
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.solver_utils import (
@@ -33,14 +28,16 @@ from py_factor_graph.utils.solver_utils import (
 
 from ro_slam.utils.plot_utils import plot_error
 from ro_slam.utils.gtsam_utils import GtsamSolverParams
+from ro_slam.utils.solver_utils import solve, ISAM2_SOLVER, LM_SOLVER
 import ro_slam.utils.gtsam_utils as gt_ut
 
 
 def solve_mle_gtsam(
     data: FactorGraphData,
     solver_params: GtsamSolverParams,
-    results_filepath: str,
-):
+    solver: str = ISAM2_SOLVER,
+    return_all_iterates: bool = False,
+) -> Union[SolverResults, List[SolverResults]]:
     """
     Takes the data describing the problem and returns the MLE solution to the
     poses and landmark positions
@@ -66,56 +63,23 @@ def solve_mle_gtsam(
     factor_graph = NonlinearFactorGraph()
     gt_ut.add_all_costs(factor_graph, data)
     initial_values = gt_ut.get_initial_values(solver_params)
-
-    # pin first pose at origin
     gt_ut.pin_first_pose(factor_graph, data)
-    # gt_ut.pin_first_landmark(factor_graph, data)
 
-    # perform optimization
-    logger.debug("Initializing solver...")
+    start_time = time.perf_counter()
+    gtsam_result = solve(factor_graph, initial_values, solver)
+    tot_time = time.perf_counter() - start_time
 
-    # initialize the ISAM2 instance
-    parameters = ISAM2Params()
-    parameters.setOptimizationParams(ISAM2DoglegParams())
-    logger.debug(f"ISAM Params: {parameters}")
-    isam_solver = ISAM2(parameters)
-    isam_solver.update(factor_graph, initial_values)
-
-    # run the optimization
-    logger.debug("Solving ...")
-    t_start = time.time()
-    try:
-        gtsam_result = isam_solver.calculateEstimate()
-    except Exception as e:
-        logger.error("Error: ", e)
-        return
-    t_end = time.time()
-    tot_time = t_end - t_start
-    logger.debug(f"Solved in {tot_time} seconds")
-
-    # get the cost at the solution
-    cost = factor_graph.error(gtsam_result)
-
-    # get the cost for each factor
-    # gt_ut.generate_detailed_report_of_factor_costs(
-    #     factor_graph, gtsam_result
-    # )
-
-    # print cost in scientific notation
-    logger.debug(f"Cost at solution: {cost:.2e}")
-    # logger.info(f"Cost at solution: {cost}")
-
-    # get the results and save if desired
-    solution_vals = gt_ut.get_solved_values(gtsam_result, tot_time, data, cost)
-    if solver_params.save_results:
-        save_results_to_file(
-            solution_vals,
-            solved_cost=factor_graph.error(gtsam_result),
-            solve_success=True,
-            filepath=results_filepath,
-        )
-
-    return solution_vals
+    # return the results
+    if return_all_iterates:
+        assert isinstance(gtsam_result, list)
+        results = [
+            gt_ut.get_solved_values(result, tot_time, data) for result in gtsam_result
+        ]
+        return results
+    else:
+        assert isinstance(gtsam_result, Values)
+        res = gt_ut.get_solved_values(gtsam_result, tot_time, data)
+        return res
 
 
 if __name__ == "__main__":
@@ -157,8 +121,6 @@ if __name__ == "__main__":
     fg.print_summary()
 
     solver_params = GtsamSolverParams(
-        verbose=True,
-        save_results=True,
         init_technique=args.init_technique,
         custom_init_file=args.custom_init_file,
     )
