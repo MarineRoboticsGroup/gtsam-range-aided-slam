@@ -32,9 +32,7 @@ from py_factor_graph.utils.solver_utils import (
 )
 
 from ro_slam.utils.plot_utils import plot_error
-from ro_slam.utils.solver_utils import (
-    GtsamSolverParams,
-)
+from ro_slam.utils.gtsam_utils import GtsamSolverParams
 import ro_slam.utils.gtsam_utils as gt_ut
 
 
@@ -66,52 +64,12 @@ def solve_mle_gtsam(
     ), f"Found {sorted(list(unconnected_variables))} unconnected variables. "
 
     factor_graph = NonlinearFactorGraph()
-    initial_values = Values()
-
-    # form objective function
-    gt_ut.add_distances_cost(factor_graph, data)
-    gt_ut.add_odom_cost(factor_graph, data)
-    gt_ut.add_loop_closure_cost(factor_graph, data)
-    gt_ut.add_landmark_prior_cost(factor_graph, data)
+    gt_ut.add_all_costs(factor_graph, data)
+    initial_values = gt_ut.get_initial_values(solver_params)
 
     # pin first pose at origin
     gt_ut.pin_first_pose(factor_graph, data)
     # gt_ut.pin_first_landmark(factor_graph, data)
-
-    if solver_params.init_technique == "gt":
-        gt_ut.set_pose_init_gt(
-            initial_values,
-            data,
-            solver_params.init_translation_perturbation,
-            solver_params.init_rotation_perturbation,
-        )
-        gt_ut.set_landmark_init_gt(initial_values, data)
-    elif solver_params.init_technique == "compose":
-        gt_ut.set_pose_init_compose(
-            initial_values,
-            data,
-            gt_start=True,
-            perturb_magnitude=solver_params.init_translation_perturbation,
-            perturb_rotation=solver_params.init_rotation_perturbation,
-        )
-        gt_ut.set_landmark_init_gt(initial_values, data)
-        # gt_ut.set_landmark_init_random(initial_values, data)
-    elif solver_params.init_technique == "random":
-        gt_ut.set_pose_init_random(initial_values, data)
-        gt_ut.set_landmark_init_random(initial_values, data)
-    elif solver_params.init_technique == "custom":
-        assert (
-            solver_params.custom_init_file is not None
-        ), "Must provide custom_init_filepath if using custom init"
-        custom_vals = load_custom_init_file(solver_params.custom_init_file)
-        init_poses = custom_vals.poses
-        init_landmarks = custom_vals.landmarks
-        gt_ut.set_pose_init_custom(initial_values, init_poses)
-        gt_ut.set_landmark_init_custom(initial_values, init_landmarks)
-
-    # Visualize initial values
-    VISUALIZE_INIT = False
-    # print(initial_values)
 
     # perform optimization
     logger.debug("Initializing solver...")
