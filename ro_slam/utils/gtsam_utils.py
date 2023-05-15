@@ -1,10 +1,5 @@
 import numpy as np
-import py
-import io
-import sys
-from contextlib import redirect_stdout, redirect_stderr
 from typing import List, Tuple, Union, Dict, Optional
-import tqdm  # type: ignore
 import re
 from py_factor_graph.measurements import (
     PoseMeasurement2D,
@@ -21,6 +16,8 @@ from py_factor_graph.variables import (
 )
 
 import logging, coloredlogs
+from attrs import define, field
+from os.path import isfile
 
 logger = logging.getLogger(__name__)
 field_styles = {
@@ -64,15 +61,20 @@ from py_factor_graph.utils.matrix_utils import (
     get_translation_from_transformation_matrix,
     apply_transformation_matrix_perturbation,
 )
-from py_factor_graph.utils.solver_utils import SolverResults, VariableValues
+from py_factor_graph.utils.solver_utils import (
+    SolverResults,
+    VariableValues,
+    load_custom_init_file,
+)
 
 
-@attr.s(frozen=True)
+@define(frozen=True)
 class GtsamSolverParams:
-    init_technique: str = attr.ib()
-    custom_init_file: Optional[str] = attr.ib(default=None)
-    init_translation_perturbation: Optional[float] = attr.ib(default=None)
-    init_rotation_perturbation: Optional[float] = attr.ib(default=None)
+    init_technique: str = field()
+    custom_init_file: Optional[str] = field(default=None)
+    init_translation_perturbation: Optional[float] = field(default=None)
+    init_rotation_perturbation: Optional[float] = field(default=None)
+    start_at_gt: bool = field(default=False)
 
     @init_technique.validator
     def _check_init_technique(self, attribute, value):
@@ -99,7 +101,7 @@ def add_all_costs(
     # form objective function
     add_distances_cost(graph, data)
     add_odom_cost(graph, data)
-    add_loop_closure_cost(graph, data)
+    # add_loop_closure_cost(graph, data)
     add_landmark_prior_cost(graph, data)
 
 
@@ -120,7 +122,7 @@ def add_distances_cost(
         pose_symbol = get_symbol_from_name(range_measure.pose_key)
         landmark_symbol = get_symbol_from_name(range_measure.landmark_key)
 
-        range_noise = noiseModel.Isotropic.Sigma(1, range_measure.variance)
+        range_noise = noiseModel.Isotropic.Sigma(1, range_measure.variance / 4)
 
         # If the landmark is actually secretly a pose, then we use RangeFactorPose2
         if "L" not in range_measure.landmark_key:
@@ -281,7 +283,9 @@ def add_landmark_prior_cost(
 ##### Initialization strategies #####
 
 
-def get_initial_values(solver_params: GtsamSolverParams) -> Values:
+def get_initial_values(
+    solver_params: GtsamSolverParams, data: FactorGraphData
+) -> Values:
     initial_values = Values()
     if solver_params.init_technique == "gt":
         set_pose_init_gt(
@@ -295,7 +299,7 @@ def get_initial_values(solver_params: GtsamSolverParams) -> Values:
         set_pose_init_compose(
             initial_values,
             data,
-            gt_start=True,
+            gt_start=solver_params.start_at_gt,
             perturb_magnitude=solver_params.init_translation_perturbation,
             perturb_rotation=solver_params.init_rotation_perturbation,
         )
@@ -640,43 +644,6 @@ def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> No
 ##### Misc
 
 
-def generate_detailed_report_of_factor_costs(
-    graph: NonlinearFactorGraph, values: Values
-) -> None:
-    """[summary]
-
-    Args:
-        graph (NonlinearFactorGraph): [description]
-        values (Values): [description]
-    """
-    # call printErrors to and save the output to a string
-    capture = py.io.StdCaptureFD()
-    graph.printErrors(values)
-    output, error = capture.reset()
-    split_output = output.splitlines()
-
-    for idx in range(len(split_output)):
-        if "RangeFactor" in split_output[idx]:
-            info = [split_output[idx + cnt] for cnt in [0, 1, 3]]
-            print("\n".join(info), end="\n\n")
-
-    # get the symbol for A95 and A96
-    a95_symbol = get_symbol_from_name("A95")
-    a96_symbol = get_symbol_from_name("A96")
-
-    # print the values of A95 and A96
-    print(f"A95: {values.atPose2(a95_symbol)}")
-    print(f"A96: {values.atPose2(a96_symbol)}")
-
-    # print the value of A0
-    a0_symbol = get_symbol_from_name("A0")
-    print(f"A0: {values.atPose2(a0_symbol)}")
-
-    # print the value of L0
-    l0_symbol = get_symbol_from_name("L0")
-    print(f"L0: {values.atPoint2(l0_symbol)}")
-
-
 def get_factor_graph_from_pyfg_data(data: FactorGraphData) -> NonlinearFactorGraph:
     factor_graph = NonlinearFactorGraph()
 
@@ -789,7 +756,7 @@ def get_solved_values(
         else:
             raise ValueError(f"Invalid association: {assoc}")
 
-        solved_distances[assoc] = np.linalg.norm(trans1 - trans2)
+        solved_distances[assoc] = np.array([np.linalg.norm(trans1 - trans2)])
 
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
@@ -804,6 +771,7 @@ def get_solved_values(
 
     return SolverResults(
         VariableValues(
+            dim=dim,
             poses=solved_poses,
             landmarks=solved_landmarks,
             distances=solved_distances,

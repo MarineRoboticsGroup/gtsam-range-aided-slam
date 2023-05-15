@@ -2,6 +2,8 @@ from typing import Optional, Callable, Union, List
 from os.path import isfile
 import attr
 import logging
+import numpy as np
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -24,18 +26,10 @@ def solve(
     graph: NonlinearFactorGraph,
     initial_vals: Values,
     solver: str,
-) -> Values:
+    return_all_iterates: bool = False,
+) -> Union[Values, List[Values]]:
     solver_func = _get_solver_func(solver)
-    return solver_func(graph, initial_vals)
-
-
-def solve_and_return_all_iterates(
-    graph: NonlinearFactorGraph,
-    initial_vals: Values,
-    solver: str,
-) -> Values:
-    solver_func = _get_solver_func(solver)
-    return solver_func(graph, initial_vals, return_all_iterates=True)
+    return solver_func(graph, initial_vals, return_all_iterates=return_all_iterates)
 
 
 def _get_solver_func(solver: str) -> Callable:
@@ -76,7 +70,30 @@ def solve_with_levenberg_marquardt(
         return result
     else:
         results = [optimizer.values()]
-        while not optimizer.checkConvergence():
+        currentError = np.inf
+        newError = optimizer.error()
+        rel_err_tol = params.getRelativeErrorTol()
+        abs_err_tol = params.getAbsoluteErrorTol()
+        err_tol = params.getErrorTol()
+        max_iter = params.getMaxIterations()
+
+        converged = False
+        curr_iter = 0
+
+        while not converged and curr_iter < max_iter:
             optimizer.iterate()
             results.append(optimizer.values())
+
+            currentError = newError
+            newError = optimizer.error()
+
+            within_rel_err_tol = (
+                abs(newError - currentError) < rel_err_tol * currentError
+            )
+            within_abs_err_tol = abs(newError - currentError) < abs_err_tol
+            within_err_tol = newError < err_tol
+
+            converged = within_rel_err_tol or within_abs_err_tol or within_err_tol
+            curr_iter += 1
+
         return results

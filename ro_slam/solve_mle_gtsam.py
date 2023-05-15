@@ -62,16 +62,20 @@ def solve_mle_gtsam(
 
     factor_graph = NonlinearFactorGraph()
     gt_ut.add_all_costs(factor_graph, data)
-    initial_values = gt_ut.get_initial_values(solver_params)
+    initial_values = gt_ut.get_initial_values(solver_params, data)
     gt_ut.pin_first_pose(factor_graph, data)
 
     start_time = time.perf_counter()
-    gtsam_result = solve(factor_graph, initial_values, solver)
+    gtsam_result = solve(
+        factor_graph, initial_values, solver, return_all_iterates=return_all_iterates
+    )
     tot_time = time.perf_counter() - start_time
 
     # return the results
     if return_all_iterates:
-        assert isinstance(gtsam_result, list)
+        assert isinstance(
+            gtsam_result, list
+        ), f"Expected list, got {type(gtsam_result)}"
         results = [
             gt_ut.get_solved_values(result, tot_time, data) for result in gtsam_result
         ]
