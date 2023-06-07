@@ -1,4 +1,3 @@
-import re
 import time
 
 import logging, coloredlogs
@@ -17,18 +16,15 @@ coloredlogs.install(
 )
 
 from gtsam.gtsam import NonlinearFactorGraph, Values
-from typing import List, Optional, Union
+from typing import List, Union
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.solver_utils import (
     SolverResults,
-    save_results_to_file,
-    load_custom_init_file,
 )
 
-from ro_slam.utils.plot_utils import plot_error
 from ro_slam.utils.gtsam_utils import GtsamSolverParams
-from ro_slam.utils.solver_utils import solve, ISAM2_SOLVER, LM_SOLVER
+from ro_slam.utils.solver_utils import solve, ISAM2_SOLVER
 import ro_slam.utils.gtsam_utils as gt_ut
 
 
@@ -84,49 +80,3 @@ def solve_mle_gtsam(
         assert isinstance(gtsam_result, Values)
         res = gt_ut.get_solved_values(gtsam_result, tot_time, data)
         return res
-
-
-if __name__ == "__main__":
-    import argparse
-    from os.path import join, isfile
-    from py_factor_graph.parsing.parse_efg_file import parse_efg_file
-    from py_factor_graph.parsing.parse_pickle_file import parse_pickle_file
-
-    arg_parser = argparse.ArgumentParser()
-    arg_parser.add_argument(
-        "data_dir", type=str, help="Path to the directory the PyFactorGraph is held in"
-    )
-    arg_parser.add_argument("pyfg_filename", type=str, help="name of the PyFactorGraph")
-    arg_parser.add_argument(
-        "results_dir", type=str, help="Path to the directory the results are saved to"
-    )
-    arg_parser.add_argument(
-        "results_filename", type=str, help="name of the results file"
-    )
-    arg_parser.add_argument(
-        "init_technique", type=str, help="Initialization technique to use"
-    )
-    arg_parser.add_argument(
-        "custom_init_file",
-        type=str,
-        help="Path to the custom initialization file",
-        default=None,
-    )
-    args = arg_parser.parse_args()
-
-    fg_filepath = join(args.data_dir, args.pyfg_filename)
-    if fg_filepath.endswith(".pickle") or fg_filepath.endswith(".pkl"):
-        fg = parse_pickle_file(fg_filepath)
-    elif fg_filepath.endswith(".fg"):
-        fg = parse_efg_file(fg_filepath)
-    else:
-        raise ValueError(f"Unknown file type: {fg_filepath}")
-    logger.debug(f"Loaded data: {fg_filepath}")
-    fg.print_summary()
-
-    solver_params = GtsamSolverParams(
-        init_technique=args.init_technique,
-        custom_init_file=args.custom_init_file,
-    )
-    results_filepath = join(args.results_dir, args.results_filename)
-    solve_mle_gtsam(fg, solver_params, results_filepath)

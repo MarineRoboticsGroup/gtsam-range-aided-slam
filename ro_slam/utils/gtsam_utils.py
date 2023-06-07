@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Tuple, Union, Dict, Optional
+from typing import Tuple, Union, Dict, Optional
 import re
 from py_factor_graph.measurements import (
     PoseMeasurement2D,

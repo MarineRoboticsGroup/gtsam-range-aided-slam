@@ -1,9 +1,6 @@
-from typing import Optional, Callable, Union, List
-from os.path import isfile
-import attr
+from typing import Callable, Union, List
 import logging
 import numpy as np
-import math
 
 logger = logging.getLogger(__name__)
 
