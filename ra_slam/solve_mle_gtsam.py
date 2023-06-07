@@ -23,9 +23,9 @@ from py_factor_graph.utils.solver_utils import (
     SolverResults,
 )
 
-from ro_slam.utils.gtsam_utils import GtsamSolverParams
-from ro_slam.utils.solver_utils import solve, ISAM2_SOLVER
-import ro_slam.utils.gtsam_utils as gt_ut
+from ra_slam.utils.gtsam_utils import GtsamSolverParams
+from ra_slam.utils.solver_utils import solve, ISAM2_SOLVER
+import ra_slam.utils.gtsam_utils as gt_ut
 
 
 def solve_mle_gtsam(
