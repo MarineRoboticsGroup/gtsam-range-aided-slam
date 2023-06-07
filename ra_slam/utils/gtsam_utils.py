@@ -1,10 +1,5 @@
 import numpy as np
-import py
-import io
-import sys
-from contextlib import redirect_stdout, redirect_stderr
-from typing import List, Tuple, Union, Dict, Optional
-import tqdm  # type: ignore
+from typing import Tuple, Union, Dict, Optional
 import re
 from py_factor_graph.measurements import (
     PoseMeasurement2D,
@@ -23,6 +18,8 @@ from py_factor_graph.variables import (
 VALID_BETWEEN_FACTOR_MODELS = ["SESync", "between"]
 
 import logging, coloredlogs
+from attrs import define, field
+from os.path import isfile
 
 logger = logging.getLogger(__name__)
 field_styles = {
@@ -56,8 +53,8 @@ from gtsam.gtsam import (
     PriorFactorPoint3,
     symbol,
 )
-from ro_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
-from ro_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
+from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
+from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.matrix_utils import (
@@ -68,10 +65,57 @@ from py_factor_graph.utils.matrix_utils import (
     get_translation_from_transformation_matrix,
     apply_transformation_matrix_perturbation,
 )
-from py_factor_graph.utils.solver_utils import SolverResults, VariableValues
+from py_factor_graph.utils.solver_utils import (
+    SolverResults,
+    VariableValues,
+    load_custom_init_file,
+)
+
+
+@define(frozen=True)
+class GtsamSolverParams:
+    init_technique: str = field()
+    landmark_init: str = field()
+    custom_init_file: Optional[str] = field(default=None)
+    init_translation_perturbation: Optional[float] = field(default=None)
+    init_rotation_perturbation: Optional[float] = field(default=None)
+    start_at_gt: bool = field(default=False)
+
+    @init_technique.validator
+    def _check_init_technique(self, attribute, value):
+        init_options = ["gt", "compose", "random", "custom"]
+        if value not in init_options:
+            raise ValueError(
+                f"init_technique must be one of {init_options}, not {value}"
+            )
+
+    @landmark_init.validator
+    def _check_landmark_init(self, attribute, value):
+        init_options = ["gt", "random"]
+        if value not in init_options:
+            raise ValueError(
+                f"landmark_init must be one of {init_options}, not {value}"
+            )
+
+    @custom_init_file.validator
+    def _check_custom_init_file(self, attribute, value):
+        if value is not None:
+            if not isfile(value):
+                raise ValueError(f"custom_init_file {value} does not exist")
 
 
 ##### Add costs #####
+
+
+def add_all_costs(
+    graph: NonlinearFactorGraph,
+    data: FactorGraphData,
+) -> None:
+    # form objective function
+    add_distances_cost(graph, data)
+    add_odom_cost(graph, data)
+    # add_loop_closure_cost(graph, data)
+    add_landmark_prior_cost(graph, data)
 
 
 def add_distances_cost(
@@ -91,7 +135,7 @@ def add_distances_cost(
         pose_symbol = get_symbol_from_name(range_measure.pose_key)
         landmark_symbol = get_symbol_from_name(range_measure.landmark_key)
 
-        range_noise = noiseModel.Isotropic.Sigma(1, range_measure.variance)
+        range_noise = noiseModel.Isotropic.Sigma(1, range_measure.variance / 4)
 
         # If the landmark is actually secretly a pose, then we use RangeFactorPose2
         if "L" not in range_measure.landmark_key:
@@ -144,7 +188,6 @@ def add_odom_cost(
     ), f"Unknown factor type: {factor_type}. Valid types are: {VALID_BETWEEN_FACTOR_MODELS}"
     for odom_chain in data.odom_measurements:
         for odom_measure in odom_chain:
-
             # the indices of the related poses in the odometry measurement
             i_symbol = get_symbol_from_name(odom_measure.base_pose)
             j_symbol = get_symbol_from_name(odom_measure.to_pose)
@@ -272,7 +315,6 @@ def add_loop_closure_cost(
         factor_type in VALID_BETWEEN_FACTOR_MODELS
     ), f"Invalid factor model: {factor_type}. Valid models are: {VALID_BETWEEN_FACTOR_MODELS}"
     for loop_measure in data.loop_closure_measurements:
-
         # the indices of the related poses in the odometry measurement
         i_symbol = get_symbol_from_name(loop_measure.base_pose)
         j_symbol = get_symbol_from_name(loop_measure.to_pose)
@@ -311,6 +353,56 @@ def add_landmark_prior_cost(
 
 
 ##### Initialization strategies #####
+
+
+def get_initial_values(
+    solver_params: GtsamSolverParams, data: FactorGraphData
+) -> Values:
+    initial_values = Values()
+    if solver_params.init_technique == "gt":
+        set_pose_init_gt(
+            initial_values,
+            data,
+            solver_params.init_translation_perturbation,
+            solver_params.init_rotation_perturbation,
+        )
+    elif solver_params.init_technique == "compose":
+        set_pose_init_compose(
+            initial_values,
+            data,
+            gt_start=solver_params.start_at_gt,
+            perturb_magnitude=solver_params.init_translation_perturbation,
+            perturb_rotation=solver_params.init_rotation_perturbation,
+        )
+    elif solver_params.init_technique == "random":
+        set_pose_init_random(initial_values, data)
+    elif solver_params.init_technique == "custom":
+        assert (
+            solver_params.custom_init_file is not None
+        ), "Must provide custom_init_filepath if using custom init"
+        custom_vals = load_custom_init_file(solver_params.custom_init_file)
+        init_poses = custom_vals.poses
+        set_pose_init_custom(initial_values, init_poses)
+    else:
+        raise ValueError(f"Unknown init technique: {solver_params.init_technique}")
+
+    if solver_params.landmark_init == "custom":
+        assert (
+            solver_params.custom_init_file is not None
+        ), "Must provide custom_init_filepath if using custom init"
+        custom_vals = load_custom_init_file(solver_params.custom_init_file)
+        init_landmarks = custom_vals.landmarks
+        set_landmark_init_custom(initial_values, init_landmarks)
+    elif solver_params.landmark_init == "random":
+        set_landmark_init_random(initial_values, data)
+    elif solver_params.landmark_init == "gt":
+        set_landmark_init_gt(initial_values, data)
+    else:
+        raise ValueError(
+            f"Unknown landmark init technique: {solver_params.landmark_init}"
+        )
+
+    return initial_values
 
 
 def init_pose_variable(init_vals: Values, pose_key: str, val: np.ndarray, dim: int):
@@ -381,7 +473,9 @@ def set_pose_init_compose(
 
         # if we have perturbation parameters, then we perturb the first pose
         if perturb_magnitude is not None and perturb_rotation is not None:
-            logger.warning("Perturbing the first pose")
+            logger.warning(
+                f"Perturbing the first pose by {perturb_magnitude} translation and {perturb_rotation} rotation"
+            )
             curr_pose = apply_transformation_matrix_perturbation(
                 curr_pose, perturb_magnitude, perturb_rotation
             )
@@ -389,7 +483,6 @@ def set_pose_init_compose(
         init_pose_variable(init_vals, first_pose_name, curr_pose, dim=data.dimension)
 
         for odom_measure in odom_chain:
-
             # update the rotation and initialize the next rotation
             curr_pose = curr_pose @ odom_measure.transformation_matrix
 
@@ -480,7 +573,6 @@ def set_landmark_init_gt(
     """
     logger.debug("Setting landmark initial points to ground truth")
     for true_landmark in data.landmark_variables:
-
         # get landmark position
         landmark_key = true_landmark.name
         true_pos = np.asarray(true_landmark.true_position)
@@ -507,17 +599,14 @@ def set_landmark_init_random(init_vals: Values, data: FactorGraphData):
         y_max = data.y_max + 50
 
         if data.dimension == 2:
-            rand_vec = np.array([x_min, y_min])
-            # rand_vec = get_random_vector(dim=2, bounds=[x_min, x_max, y_min, y_max])
+            rand_vec = get_random_vector(dim=2, bounds=[x_min, x_max, y_min, y_max])
         elif data.dimension == 3:
             z_min = data.z_min - 50
             z_max = data.z_max + 50
-            rand_vec = np.array([x_min, y_min, z_min])
-            # rand_vec = get_random_vector(
-            #     dim=3, bounds=[x_min, x_max, y_min, y_max, z_min, z_max]
-            # )
+            rand_vec = get_random_vector(
+                dim=3, bounds=[x_min, x_max, y_min, y_max, z_min, z_max]
+            )
 
-        # rand_vec = np.zeros(data.dimension) # ZEROS looks good for us with goats_14
         init_landmark_variable(init_vals, landmark_key, rand_vec)
 
 
@@ -555,11 +644,11 @@ def pin_first_pose(graph: NonlinearFactorGraph, data: FactorGraphData) -> None:
     rot_stddev = 0.05
     if data.dimension == 2:
         prior_uncertainty = noiseModel.Diagonal.Sigmas(
-            np.array([trans_stddev ** 2] * 2 + [rot_stddev ** 2])
+            np.array([trans_stddev**2] * 2 + [rot_stddev**2])
         )
     elif data.dimension == 3:
         prior_uncertainty = noiseModel.Diagonal.Sigmas(
-            np.array([trans_stddev ** 2] * 3 + [rot_stddev ** 2] * 3)
+            np.array([trans_stddev**2] * 3 + [rot_stddev**2] * 3)
         )
     else:
         raise ValueError(f"The factor graph dimension is bad! D={data.dimension}")
@@ -619,7 +708,7 @@ def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> No
     x_stddev = 0.1
     y_stddev = 0.1
     prior_pt2_uncertainty = noiseModel.Diagonal.Sigmas(
-        np.array([x_stddev ** 2, y_stddev ** 2])
+        np.array([x_stddev**2, y_stddev**2])
     )
 
     for landmark_var in data.landmark_variables:
@@ -638,45 +727,7 @@ def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> No
 ##### Misc
 
 
-def generate_detailed_report_of_factor_costs(
-    graph: NonlinearFactorGraph, values: Values
-) -> None:
-    """[summary]
-
-    Args:
-        graph (NonlinearFactorGraph): [description]
-        values (Values): [description]
-    """
-    # call printErrors to and save the output to a string
-    capture = py.io.StdCaptureFD()
-    graph.printErrors(values)
-    output, error = capture.reset()
-    split_output = output.splitlines()
-
-    for idx in range(len(split_output)):
-        if "RangeFactor" in split_output[idx]:
-            info = [split_output[idx + cnt] for cnt in [0, 1, 3]]
-            print("\n".join(info), end="\n\n")
-
-    # get the symbol for A95 and A96
-    a95_symbol = get_symbol_from_name("A95")
-    a96_symbol = get_symbol_from_name("A96")
-
-    # print the values of A95 and A96
-    print(f"A95: {values.atPose2(a95_symbol)}")
-    print(f"A96: {values.atPose2(a96_symbol)}")
-
-    # print the value of A0
-    a0_symbol = get_symbol_from_name("A0")
-    print(f"A0: {values.atPose2(a0_symbol)}")
-
-    # print the value of L0
-    l0_symbol = get_symbol_from_name("L0")
-    print(f"L0: {values.atPoint2(l0_symbol)}")
-
-
 def get_factor_graph_from_pyfg_data(data: FactorGraphData) -> NonlinearFactorGraph:
-
     factor_graph = NonlinearFactorGraph()
 
     # form objective function
@@ -740,7 +791,7 @@ def get_cost_at_variable_values(pyfg: FactorGraphData, values: VariableValues) -
 
 
 def get_solved_values(
-    result: Values, time: float, data: FactorGraphData, cost: float
+    result: Values, time: float, data: FactorGraphData, cost: Optional[float] = None
 ) -> SolverResults:
     """
     Returns the solved values from the result
@@ -756,7 +807,7 @@ def get_solved_values(
     """
     solved_poses: Dict[str, np.ndarray] = {}
     solved_landmarks: Dict[str, np.ndarray] = {}
-    solved_distances: Dict[Tuple[str, str], float] = {}
+    solved_distances: Dict[Tuple[str, str], np.ndarray] = {}
     dim = data.dimension
 
     def _load_pose_result_to_solved_poses(pose_var: POSE_VARIABLE_TYPES) -> None:
@@ -788,8 +839,7 @@ def get_solved_values(
         else:
             raise ValueError(f"Invalid association: {assoc}")
 
-        diff = trans1 - trans2
-        solved_distances[assoc] = diff / np.linalg.norm(diff)
+        solved_distances[assoc] = np.array([np.linalg.norm(trans1 - trans2)])
 
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
@@ -804,7 +854,7 @@ def get_solved_values(
 
     return SolverResults(
         VariableValues(
-            dim=data.dimension,
+            dim=dim,
             poses=solved_poses,
             landmarks=solved_landmarks,
             distances=solved_distances,

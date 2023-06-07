@@ -1,7 +1,6 @@
 import gtsam
 import numpy as np
-from typing import List, Tuple, Optional
-from functools import partial
+from typing import List, Optional
 
 # Generators for the tangent space of SO(3)
 G1 = np.array([[0, 0, 0], [0, 0, -1], [0, 1, 0]])

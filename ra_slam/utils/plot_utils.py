@@ -1,4 +1,4 @@
-from typing import Dict, Tuple, List, Optional
+from typing import Tuple, List, Optional
 import numpy as np
 import math
 import matplotlib.pyplot as plt
@@ -13,7 +13,7 @@ from py_factor_graph.utils.matrix_utils import (
     get_theta_from_rotation_matrix,
     get_translation_from_transformation_matrix,
 )
-from ro_slam.utils.circle_utils import Arc, Circle, CircleIntersection, Point
+from ra_slam.utils.circle_utils import Arc, Circle, CircleIntersection, Point
 
 colors = ["red", "green", "blue", "orange", "purple", "black", "cyan"]
 

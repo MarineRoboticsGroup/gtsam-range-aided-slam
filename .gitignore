@@ -4,7 +4,7 @@ examples/*.tum
 data/
 
 # Installed libraries
-ro_slam.egg-info/
+*.egg-info/
 
 # OS generated files #
 ######################

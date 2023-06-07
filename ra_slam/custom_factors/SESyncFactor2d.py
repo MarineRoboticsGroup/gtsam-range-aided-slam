@@ -1,7 +1,6 @@
 import gtsam
 import numpy as np
-from typing import List, Tuple, Optional
-from functools import partial
+from typing import List, Optional
 
 
 def tangent_matrix(omega: float):
