@@ -71,6 +71,7 @@ from py_factor_graph.utils.solver_utils import (
 @define(frozen=True)
 class GtsamSolverParams:
     init_technique: str = field()
+    landmark_init: str = field()
     custom_init_file: Optional[str] = field(default=None)
     init_translation_perturbation: Optional[float] = field(default=None)
     init_rotation_perturbation: Optional[float] = field(default=None)
@@ -82,6 +83,14 @@ class GtsamSolverParams:
         if value not in init_options:
             raise ValueError(
                 f"init_technique must be one of {init_options}, not {value}"
+            )
+
+    @landmark_init.validator
+    def _check_landmark_init(self, attribute, value):
+        init_options = ["gt", "random"]
+        if value not in init_options:
+            raise ValueError(
+                f"landmark_init must be one of {init_options}, not {value}"
             )
 
     @custom_init_file.validator
@@ -294,7 +303,6 @@ def get_initial_values(
             solver_params.init_translation_perturbation,
             solver_params.init_rotation_perturbation,
         )
-        set_landmark_init_gt(initial_values, data)
     elif solver_params.init_technique == "compose":
         set_pose_init_compose(
             initial_values,
@@ -303,20 +311,33 @@ def get_initial_values(
             perturb_magnitude=solver_params.init_translation_perturbation,
             perturb_rotation=solver_params.init_rotation_perturbation,
         )
-        set_landmark_init_gt(initial_values, data)
-        # set_landmark_init_random(initial_values, data)
     elif solver_params.init_technique == "random":
         set_pose_init_random(initial_values, data)
-        set_landmark_init_random(initial_values, data)
     elif solver_params.init_technique == "custom":
         assert (
             solver_params.custom_init_file is not None
         ), "Must provide custom_init_filepath if using custom init"
         custom_vals = load_custom_init_file(solver_params.custom_init_file)
         init_poses = custom_vals.poses
-        init_landmarks = custom_vals.landmarks
         set_pose_init_custom(initial_values, init_poses)
+    else:
+        raise ValueError(f"Unknown init technique: {solver_params.init_technique}")
+
+    if solver_params.landmark_init == "custom":
+        assert (
+            solver_params.custom_init_file is not None
+        ), "Must provide custom_init_filepath if using custom init"
+        custom_vals = load_custom_init_file(solver_params.custom_init_file)
+        init_landmarks = custom_vals.landmarks
         set_landmark_init_custom(initial_values, init_landmarks)
+    elif solver_params.landmark_init == "random":
+        set_landmark_init_random(initial_values, data)
+    elif solver_params.landmark_init == "gt":
+        set_landmark_init_gt(initial_values, data)
+    else:
+        raise ValueError(
+            f"Unknown landmark init technique: {solver_params.landmark_init}"
+        )
 
     return initial_values
 
@@ -389,7 +410,9 @@ def set_pose_init_compose(
 
         # if we have perturbation parameters, then we perturb the first pose
         if perturb_magnitude is not None and perturb_rotation is not None:
-            logger.warning("Perturbing the first pose")
+            logger.warning(
+                f"Perturbing the first pose by {perturb_magnitude} translation and {perturb_rotation} rotation"
+            )
             curr_pose = apply_transformation_matrix_perturbation(
                 curr_pose, perturb_magnitude, perturb_rotation
             )
@@ -513,17 +536,14 @@ def set_landmark_init_random(init_vals: Values, data: FactorGraphData):
         y_max = data.y_max + 50
 
         if data.dimension == 2:
-            rand_vec = np.array([x_min, y_min])
-            # rand_vec = get_random_vector(dim=2, bounds=[x_min, x_max, y_min, y_max])
+            rand_vec = get_random_vector(dim=2, bounds=[x_min, x_max, y_min, y_max])
         elif data.dimension == 3:
             z_min = data.z_min - 50
             z_max = data.z_max + 50
-            rand_vec = np.array([x_min, y_min, z_min])
-            # rand_vec = get_random_vector(
-            #     dim=3, bounds=[x_min, x_max, y_min, y_max, z_min, z_max]
-            # )
+            rand_vec = get_random_vector(
+                dim=3, bounds=[x_min, x_max, y_min, y_max, z_min, z_max]
+            )
 
-        # rand_vec = np.zeros(data.dimension) # ZEROS looks good for us with goats_14
         init_landmark_variable(init_vals, landmark_key, rand_vec)
 
 
@@ -724,7 +744,7 @@ def get_solved_values(
     """
     solved_poses: Dict[str, np.ndarray] = {}
     solved_landmarks: Dict[str, np.ndarray] = {}
-    solved_distances: Dict[Tuple[str, str], float] = {}
+    solved_distances: Dict[Tuple[str, str], np.ndarray] = {}
     dim = data.dimension
 
     def _load_pose_result_to_solved_poses(pose_var: POSE_VARIABLE_TYPES) -> None:
