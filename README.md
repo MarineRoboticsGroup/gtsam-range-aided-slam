@@ -1,8 +1,10 @@
-# qcqp-range-only-slam
+# GTSAM Range-Aided SLAM
 
-Formulates the range-only SLAM problem as a QCQP and solves it as such using
-off-the-shelf solvers
+A straightforward solver for range-aided SLAM problems using the python bindings of GTSAM.
 
-## Getting Started
+This library still is under development, and breaking changes may still occur.
+However, this may be useful for others to use or to recreate some experimental
+results obtained in our works.
 
-need to update this
+This library makes use of our [PyFactorGraph Library](https://github.com/MarineRoboticsGroup/PyFactorGraph/)
+to represent the SLAM problem. Installation is easy and described on the `PyFactorGraph` README page.
