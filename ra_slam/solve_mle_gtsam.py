@@ -1,5 +1,5 @@
 import time
-
+import numpy as np
 import logging, coloredlogs
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,7 @@ def solve_mle_gtsam(
     solver_params: GtsamSolverParams,
     solver: str = ISAM2_SOLVER,
     return_all_iterates: bool = False,
+    seed: int = 42 * 99999,
 ) -> Union[SolverResults, List[SolverResults]]:
     """
     Takes the data describing the problem and returns the MLE solution to the
@@ -40,16 +41,14 @@ def solve_mle_gtsam(
 
     args:
         data (FactorGraphData): the data describing the problem
-        solver (str): the solver to use [ipopt, snopt, default]
-        verbose (bool): whether to show verbose solver output
-        save_results (bool): whether to save the results to a file
-        results_filepath (str): the path to save the results to
-        use_socp_relax (bool): whether to use socp relaxation on distance
-            variables
-        use_orthogonal_constraint (bool): whether to use orthogonal
-            constraint on rotation variables
+        solver_params (GtsamSolverParams): the parameters for the GTSAM solver
+        solver (str): the solver to use
+        return_all_iterates (bool): whether to return all the iterates of the solver
+        seed (int): the seed to use for the random number generator
     """
-    logger.debug(f"Running GTSAM solver with {solver_params}")
+    logger.debug(f"Running GTSAM {solver} with {solver_params}")
+
+    np.random.seed(seed)
 
     unconnected_variables = data.unconnected_variable_names
     assert (
@@ -65,6 +64,7 @@ def solve_mle_gtsam(
     gtsam_result = solve(
         factor_graph, initial_values, solver, return_all_iterates=return_all_iterates
     )
+    cost = factor_graph.error(gtsam_result)
     tot_time = time.perf_counter() - start_time
 
     # return the results
@@ -78,5 +78,5 @@ def solve_mle_gtsam(
         return results
     else:
         assert isinstance(gtsam_result, Values)
-        res = gt_ut.get_solved_values(gtsam_result, tot_time, data)
+        res = gt_ut.get_solved_values(gtsam_result, tot_time, data, cost=cost)
         return res

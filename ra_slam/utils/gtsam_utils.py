@@ -14,6 +14,7 @@ from py_factor_graph.variables import (
     LandmarkVariable3D,
     LANDMARK_VARIABLE_TYPES,
 )
+from py_factor_graph.utils.name_utils import get_time_idx_from_frame_name
 
 VALID_BETWEEN_FACTOR_MODELS = ["SESync", "between"]
 
@@ -91,7 +92,7 @@ class GtsamSolverParams:
 
     @landmark_init.validator
     def _check_landmark_init(self, attribute, value):
-        init_options = ["gt", "random"]
+        init_options = ["gt", "random", "custom"]
         if value not in init_options:
             raise ValueError(
                 f"landmark_init must be one of {init_options}, not {value}"
@@ -110,11 +111,12 @@ class GtsamSolverParams:
 def add_all_costs(
     graph: NonlinearFactorGraph,
     data: FactorGraphData,
+    rel_pose_factor_type: str = "between",
 ) -> None:
     # form objective function
     add_distances_cost(graph, data)
-    add_odom_cost(graph, data)
-    # add_loop_closure_cost(graph, data)
+    add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
+    add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
     add_landmark_prior_cost(graph, data)
 
 
@@ -132,13 +134,13 @@ def add_distances_cost(
 
     """
     for range_measure in data.range_measurements:
-        pose_symbol = get_symbol_from_name(range_measure.pose_key)
-        landmark_symbol = get_symbol_from_name(range_measure.landmark_key)
+        pose_symbol = get_symbol_from_name(range_measure.first_key)
+        landmark_symbol = get_symbol_from_name(range_measure.second_key)
 
         range_noise = noiseModel.Isotropic.Sigma(1, range_measure.variance / 4)
 
         # If the landmark is actually secretly a pose, then we use RangeFactorPose2
-        if "L" not in range_measure.landmark_key:
+        if "L" not in range_measure.second_key:
             if data.dimension == 2:
                 range_factor = RangeFactorPose2(
                     pose_symbol, landmark_symbol, range_measure.dist, range_noise
@@ -243,7 +245,7 @@ def get_pose_to_pose_factor(
     odom_measure: POSE_MEASUREMENT_TYPES,
     i_symbol: int,
     j_symbol: int,
-    factor_model: str = "SESync",
+    factor_model: str = "between",
 ) -> Union[BetweenFactorPose2, BetweenFactorPose3]:
     """Get the odometry factor from the odometry measurement.
 
@@ -810,6 +812,9 @@ def get_solved_values(
     solved_distances: Dict[Tuple[str, str], np.ndarray] = {}
     dim = data.dimension
 
+    poses_have_times = data.all_poses_have_times
+    pose_timestamps: Dict[str, float] = {}
+
     def _load_pose_result_to_solved_poses(pose_var: POSE_VARIABLE_TYPES) -> None:
         pose_symbol = get_symbol_from_name(pose_var.name)
         if isinstance(pose_var, PoseVariable2D):
@@ -844,6 +849,12 @@ def get_solved_values(
     for pose_chain in data.pose_variables:
         for pose_var in pose_chain:
             _load_pose_result_to_solved_poses(pose_var)
+            if poses_have_times:
+                pose_timestamps[pose_var.name] = pose_var.timestamp
+            else:
+                pose_timestamps[pose_var.name] = get_time_idx_from_frame_name(
+                    pose_var.name
+                )
 
     for landmark in data.landmark_variables:
         _load_landmark_result_to_solved_landmarks(landmark)
@@ -858,6 +869,7 @@ def get_solved_values(
             poses=solved_poses,
             landmarks=solved_landmarks,
             distances=solved_distances,
+            pose_times=pose_timestamps,
         ),
         total_time=time,
         solved=True,
