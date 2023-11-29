@@ -42,6 +42,10 @@ from gtsam.gtsam import (
     RangeFactor3D,
     RangeFactorPose2,
     RangeFactorPose3,
+    BearingFactor2D,    # additional gtsam functionality that must be called
+    BearingFactor3D,     # TODO: add rangebearing factor?
+    BearingFactorPose2,
+    BearingFactorPose3,
     noiseModel,
     BetweenFactorPose2,
     BetweenFactorPose3,
@@ -115,6 +119,7 @@ def add_all_costs(
 ) -> None:
     # form objective function
     add_distances_cost(graph, data)
+    add_bearing_cost(graph, data) # added to allow for bearing factor
     add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
     add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
     add_landmark_prior_cost(graph, data)
@@ -164,6 +169,63 @@ def add_distances_cost(
                 raise ValueError(f"Unknown dimension: {data.dimension}")
         graph.push_back(range_factor)
 
+# Begin new factor       
+def add_bearing_cost(
+    graph: NonlinearFactorGraph,
+    data: FactorGraphData,
+):
+    # TODO : update this justification
+    """Adds in the cost due to the distances as:
+
+    Args:
+        graph (NonlinearFactorGraph): the graph to add the cost to
+        azimuth: angle relative to AUV centerline in AUV-oriented xy-place
+        elevation: angle relative to AUV xy-plane
+        data (FactorGraphData): [description]
+
+    """
+    for bearing_measure in data.bearing_measurements:
+        pose_symbol = get_symbol_from_name(bearing_measure.first_key)
+        landmark_symbol = get_symbol_from_name(bearing_measure.second_key)
+        azimuth_sigma = np.sqrt(bearing_measure.azimuth_variance)
+        elevation_sigma = np.sqrt(bearing_measure.elevation_variance)
+        azimuth_noise = noiseModel.Isotropic.Sigma(1, bearing_measure.azimuth_variance/4)
+
+        if "L" not in bearing_measure.second_key:
+            if data.dimension == 2:
+                bearing_factor = BearingFactor2D(
+                    pose_symbol, landmark_symbol, bearing_measure.bearing_azimuth, azimuth_noise
+                )
+            elif data.dimension == 3:
+                measurement3D = [np.cos(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_elevation)]
+                measurement3D = measurement3D/np.linalg.norm(measurement3D)
+                assert(np.isclose(np.linalg.norm(measurement3D), 1))
+                noise_model_3D = noiseModel.Diagonal.Sigmas(azimuth_sigma, elevation_sigma)
+                bearing_factor = BearingFactor3D(
+                    pose_symbol, landmark_symbol, measurement3D, noise_model_3D
+                )
+            else:
+                raise ValueError(f"Unknown dimension: {data.dimension}")
+        else:
+        # GTSAM handles bearing to pose and point differently
+            if data.dimension == 2:
+                bearing_factor = BearingFactor2D(
+                    pose_symbol, landmark_symbol, bearing_measure.bearing_azimuth, azimuth_noise
+                )
+        # unclear if this is the correct way to parse measurement into BearingFactor3D
+            elif data.dimension == 3:
+                measurement3D = [np.cos(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_elevation)]
+                measurement3D = measurement3D/np.linalg.norm(measurement3D)
+                assert(np.isclose(np.linalg.norm(measurement3D), 1))
+                noise_model_3D = noiseModel.Diagonal.Sigmas(azimuth_sigma, elevation_sigma) 
+                bearing_factor = BearingFactor3D(
+                    pose_symbol, landmark_symbol, measurement3D, noise_model_3D
+                )
+            else:
+                raise ValueError(f"Unknown dimension: {data.dimension}")
+            
+    graph.push_back(bearing_factor)
+# end new factor
 
 def add_odom_cost(
     graph: NonlinearFactorGraph,
@@ -734,6 +796,7 @@ def get_factor_graph_from_pyfg_data(data: FactorGraphData) -> NonlinearFactorGra
 
     # form objective function
     add_distances_cost(factor_graph, data)
+    add_bearing_cost(factor_graph, data) # added factor
     add_odom_cost(factor_graph, data)
     add_loop_closure_cost(factor_graph, data)
     add_landmark_prior_cost(factor_graph, data)
