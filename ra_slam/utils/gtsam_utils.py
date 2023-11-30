@@ -44,13 +44,15 @@ from gtsam.gtsam import (
     RangeFactorPose3,
     BearingFactor2D,    # additional gtsam functionality that must be called
     BearingFactor3D,     # TODO: add rangebearing factor?
-    BearingFactorPose2,
-    BearingFactorPose3,
+    Unit3,
+    # BearingFactorPose2,
+    # BearingFactorPose3,
     noiseModel,
     BetweenFactorPose2,
     BetweenFactorPose3,
     Pose2,
     Pose3,
+    Rot2,
     Rot3,
     PriorFactorPose2,
     PriorFactorPose3,
@@ -193,33 +195,38 @@ def add_bearing_cost(
 
         if "L" not in bearing_measure.second_key:
             if data.dimension == 2:
+                bearing_rot2 = Rot2(bearing_measure.bearing_azimuth)
                 bearing_factor = BearingFactor2D(
-                    pose_symbol, landmark_symbol, bearing_measure.bearing_azimuth, azimuth_noise
+                    pose_symbol, landmark_symbol, bearing_rot2, azimuth_noise
                 )
             elif data.dimension == 3:
-                measurement3D = [np.cos(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_elevation)]
+                measurement3D = [np.cos(bearing_measure.bearing_azimuth)*np.cos(bearing_measure.bearing_elevation), np.sin(bearing_measure.bearing_azimuth)*np.cos(bearing_measure.bearing_elevation), np.sin(bearing_measure.bearing_elevation)]
                 measurement3D = measurement3D/np.linalg.norm(measurement3D)
                 assert(np.isclose(np.linalg.norm(measurement3D), 1))
-                noise_model_3D = noiseModel.Diagonal.Sigmas(azimuth_sigma, elevation_sigma)
+                measurement_unit3 = Unit3(measurement3D)  # Convert to gtsam.gtsam.Unit3
+                noise_model_3D = noiseModel.Diagonal.Sigmas(np.array([azimuth_sigma, elevation_sigma]))
                 bearing_factor = BearingFactor3D(
-                    pose_symbol, landmark_symbol, measurement3D, noise_model_3D
+                    pose_symbol, landmark_symbol, measurement_unit3, noise_model_3D
                 )
+
             else:
                 raise ValueError(f"Unknown dimension: {data.dimension}")
         else:
         # GTSAM handles bearing to pose and point differently
             if data.dimension == 2:
+                bearing_rot2 = Rot2(bearing_measure.bearing_azimuth)
                 bearing_factor = BearingFactor2D(
-                    pose_symbol, landmark_symbol, bearing_measure.bearing_azimuth, azimuth_noise
+                    pose_symbol, landmark_symbol, bearing_rot2, azimuth_noise
                 )
         # unclear if this is the correct way to parse measurement into BearingFactor3D
             elif data.dimension == 3:
-                measurement3D = [np.cos(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_azimuth), np.sin(bearing_measure.bearing_elevation)]
+                measurement3D = [np.cos(bearing_measure.bearing_azimuth)*np.cos(bearing_measure.bearing_elevation), np.sin(bearing_measure.bearing_azimuth)*np.cos(bearing_measure.bearing_elevation), np.sin(bearing_measure.bearing_elevation)]
                 measurement3D = measurement3D/np.linalg.norm(measurement3D)
                 assert(np.isclose(np.linalg.norm(measurement3D), 1))
-                noise_model_3D = noiseModel.Diagonal.Sigmas(azimuth_sigma, elevation_sigma) 
+                measurement_unit3 = Unit3(measurement3D)  # Convert to gtsam.gtsam.Unit3
+                noise_model_3D = noiseModel.Diagonal.Sigmas(np.array([azimuth_sigma, elevation_sigma]))
                 bearing_factor = BearingFactor3D(
-                    pose_symbol, landmark_symbol, measurement3D, noise_model_3D
+                    pose_symbol, landmark_symbol, measurement_unit3, noise_model_3D
                 )
             else:
                 raise ValueError(f"Unknown dimension: {data.dimension}")
