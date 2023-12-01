@@ -34,6 +34,7 @@ def solve_mle_gtsam(
     solver: str = ISAM2_SOLVER,
     return_all_iterates: bool = False,
     seed: int = 42 * 99999,
+    selected_cost: str = "all",
 ) -> Union[SolverResults, List[SolverResults]]:
     """
     Takes the data describing the problem and returns the MLE solution to the
@@ -56,7 +57,8 @@ def solve_mle_gtsam(
     ), f"Found {sorted(list(unconnected_variables))} unconnected variables. "
 
     factor_graph = NonlinearFactorGraph()
-    gt_ut.add_all_costs(factor_graph, data)
+    # gt_ut.add_all_costs(factor_graph, data)
+    gt_ut.add_selected_costs(factor_graph, data, selected_cost)
     initial_values = gt_ut.get_initial_values(solver_params, data)
     gt_ut.pin_first_pose(factor_graph, data)
 

@@ -127,6 +127,33 @@ def add_all_costs(
     add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
     add_landmark_prior_cost(graph, data)
 
+def add_selected_costs(
+    graph: NonlinearFactorGraph,
+    data: FactorGraphData,
+    selected_cost: str = "all",
+    rel_pose_factor_type: str = "between",
+) -> None:
+    # form objective function
+    if selected_cost == "all":
+        add_distances_cost(graph, data)
+        add_bearing_cost(graph, data)
+        add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_landmark_prior_cost(graph, data)
+    elif selected_cost == "range_odom":
+        add_distances_cost(graph, data)
+        add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_landmark_prior_cost(graph, data)     
+    elif selected_cost == "bearing_odom":
+        add_bearing_cost(graph, data) 
+        add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_landmark_prior_cost(graph, data)
+    elif selected_cost == "odom":
+        add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
+        add_landmark_prior_cost(graph, data)   
 
 def add_distances_cost(
     graph: NonlinearFactorGraph,
