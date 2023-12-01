@@ -43,7 +43,8 @@ from gtsam.gtsam import (
     RangeFactorPose2,
     RangeFactorPose3,
     BearingFactor2D,    # additional gtsam functionality that must be called
-    BearingFactor3D,     # TODO: add rangebearing factor?
+    BearingFactor3D,
+    BearingFactorPose3,     # TODO: add rangebearing factor?
     Unit3,
     # BearingFactorPose2,
     # BearingFactorPose3,
@@ -205,7 +206,10 @@ def add_bearing_cost(
                 assert(np.isclose(np.linalg.norm(measurement3D), 1))
                 measurement_unit3 = Unit3(measurement3D)  # Convert to gtsam.gtsam.Unit3
                 noise_model_3D = noiseModel.Diagonal.Sigmas(np.array([azimuth_sigma, elevation_sigma]))
-                bearing_factor = BearingFactor3D(
+                # bearing_factor = BearingFactor3D(
+                #     pose_symbol, landmark_symbol, measurement_unit3, noise_model_3D
+                # )
+                bearing_factor = BearingFactorPose3(
                     pose_symbol, landmark_symbol, measurement_unit3, noise_model_3D
                 )
 
@@ -225,7 +229,10 @@ def add_bearing_cost(
                 assert(np.isclose(np.linalg.norm(measurement3D), 1))
                 measurement_unit3 = Unit3(measurement3D)  # Convert to gtsam.gtsam.Unit3
                 noise_model_3D = noiseModel.Diagonal.Sigmas(np.array([azimuth_sigma, elevation_sigma]))
-                bearing_factor = BearingFactor3D(
+                # bearing_factor = BearingFactor3D(
+                #     pose_symbol, landmark_symbol, measurement_unit3, noise_model_3D
+                # )
+                bearing_factor = BearingFactorPose3(
                     pose_symbol, landmark_symbol, measurement_unit3, noise_model_3D
                 )
             else:
