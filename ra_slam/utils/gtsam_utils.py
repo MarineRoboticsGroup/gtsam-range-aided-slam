@@ -5,6 +5,8 @@ from py_factor_graph.measurements import (
     PoseMeasurement2D,
     PoseMeasurement3D,
     POSE_MEASUREMENT_TYPES,
+    PoseToLandmarkMeasurement2D,
+    PoseToLandmarkMeasurement3D,
 )
 from py_factor_graph.variables import (
     PoseVariable2D,
@@ -56,6 +58,10 @@ from gtsam.gtsam import (
 )
 from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
 from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
+from ra_slam.custom_factors.PoseToPointFactor import (
+    PoseToPoint2dFactor,
+    PoseToPoint3dFactor,
+)
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.matrix_utils import (
@@ -117,6 +123,7 @@ def add_all_costs(
     add_distances_cost(graph, data)
     add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
     add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
+    add_pose_landmark_cost(graph, data)
     add_landmark_prior_cost(graph, data)
 
 
@@ -324,6 +331,36 @@ def add_loop_closure_cost(
             loop_measure, i_symbol, j_symbol, factor_type
         )
         graph.push_back(loop_factor)
+
+
+def add_pose_landmark_cost(
+    graph: NonlinearFactorGraph,
+    data: FactorGraphData,
+):
+    """Add the cost associated with the loop closure measurements as:
+
+        translation component of cost
+        k_ij * ||t_i - t_j - R_i @ t_ij^meas||^2
+
+    Args:
+        graph (NonlinearFactorGraph): the graph to add the cost to
+        data (FactorGraphData): the factor graph data
+    """
+    for plm in data.pose_landmark_measurements:
+        # the indices of the related poses in the odometry measurement
+        i_symbol = get_symbol_from_name(plm.pose_name)
+        j_symbol = get_symbol_from_name(plm.landmark_name)
+        if isinstance(plm, PoseToLandmarkMeasurement2D):
+            plm_factor = PoseToPoint2dFactor(
+                i_symbol, j_symbol, plm.translation_vector, plm.translation_precision
+            )
+        elif isinstance(plm, PoseToLandmarkMeasurement3D):
+            plm_factor = PoseToPoint3dFactor(
+                i_symbol, j_symbol, plm.translation_vector, plm.translation_precision
+            )
+        else:
+            raise ValueError(f"Unknown measurement type: {type(plm)}")
+        graph.push_back(plm_factor)
 
 
 def add_landmark_prior_cost(
@@ -733,10 +770,7 @@ def get_factor_graph_from_pyfg_data(data: FactorGraphData) -> NonlinearFactorGra
     factor_graph = NonlinearFactorGraph()
 
     # form objective function
-    add_distances_cost(factor_graph, data)
-    add_odom_cost(factor_graph, data)
-    add_loop_closure_cost(factor_graph, data)
-    add_landmark_prior_cost(factor_graph, data)
+    add_all_costs(factor_graph, data)
 
     # pin first pose at origin
     pin_first_pose(factor_graph, data)

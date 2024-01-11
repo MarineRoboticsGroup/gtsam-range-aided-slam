@@ -12,6 +12,7 @@ from gtsam.gtsam import (
     LevenbergMarquardtParams,
     NonlinearFactorGraph,
     Values,
+    Symbol,
 )
 
 ISAM2_SOLVER = "isam2"
@@ -60,6 +61,29 @@ def solve_with_levenberg_marquardt(
     optimizer = LevenbergMarquardtOptimizer(graph, initial_vals)
     params = LevenbergMarquardtParams()
     params.setVerbosityLM("SUMMARY")
+
+    # check that the variables in the graph are all in the initial values
+    # otherwise, the optimizer will throw an error
+    init_vals_vars = initial_vals.keys()
+    graph_vars = graph.keyVector()
+
+    graph_var_set = set(graph_vars)
+    init_vals_var_set = set(init_vals_vars)
+
+    in_graph_not_init_vals = graph_var_set - init_vals_var_set
+    in_init_vals_not_graph = init_vals_var_set - graph_var_set
+
+    if len(in_graph_not_init_vals) > 0:
+        graph_vars_as_symbols = [Symbol(key) for key in in_graph_not_init_vals]
+        raise ValueError(
+            f"Variables in graph but not in initial values: {graph_vars_as_symbols}"
+        )
+
+    if len(in_init_vals_not_graph) > 0:
+        init_vals_vars_as_symbols = [Symbol(key) for key in in_init_vals_not_graph]
+        raise ValueError(
+            f"Variables in initial values but not in graph: {init_vals_vars_as_symbols}"
+        )
 
     if not return_all_iterates:
         optimizer.optimize()
