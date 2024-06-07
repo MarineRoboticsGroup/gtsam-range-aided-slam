@@ -64,7 +64,15 @@ def solve_mle_gtsam(
     gtsam_result = solve(
         factor_graph, initial_values, solver, return_all_iterates=return_all_iterates
     )
-    cost = factor_graph.error(gtsam_result)
+    if isinstance(gtsam_result, list):
+        assert len(gtsam_result) > 0, f"Expected len > 0, got {len(gtsam_result)}"
+        assert isinstance(
+            gtsam_result[0], Values
+        ), f"Expected Values, got {type(gtsam_result[0])}"
+        cost = factor_graph.error(gtsam_result[0])
+    else:
+        cost = factor_graph.error(gtsam_result)
+
     tot_time = time.perf_counter() - start_time
 
     # return the results

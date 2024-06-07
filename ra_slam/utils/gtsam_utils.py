@@ -5,6 +5,9 @@ from py_factor_graph.measurements import (
     PoseMeasurement2D,
     PoseMeasurement3D,
     POSE_MEASUREMENT_TYPES,
+    PoseToLandmarkMeasurement2D,
+    PoseToLandmarkMeasurement3D,
+    POSE_LANDMARK_MEASUREMENT_TYPES,
 )
 from py_factor_graph.variables import (
     PoseVariable2D,
@@ -54,6 +57,7 @@ from gtsam.gtsam import (
     PriorFactorPoint3,
     symbol,
 )
+from gtsam_unstable.gtsam_unstable import PoseToPointFactor2D, PoseToPointFactor3D
 from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
 from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
 
@@ -118,6 +122,7 @@ def add_all_costs(
     add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
     add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
     add_landmark_prior_cost(graph, data)
+    add_pose_to_landmark_costs(graph, data)
 
 
 def add_distances_cost(
@@ -137,28 +142,30 @@ def add_distances_cost(
         pose_symbol = get_symbol_from_name(range_measure.first_key)
         landmark_symbol = get_symbol_from_name(range_measure.second_key)
 
-        range_noise = noiseModel.Isotropic.Sigma(1, range_measure.variance / 4)
+        variance = range_measure.variance
+        range_noise = noiseModel.Isotropic.Sigma(1, variance)
+        dist = range_measure.dist
 
         # If the landmark is actually secretly a pose, then we use RangeFactorPose2
         if "L" not in range_measure.second_key:
             if data.dimension == 2:
                 range_factor = RangeFactorPose2(
-                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                    pose_symbol, landmark_symbol, dist, range_noise
                 )
             elif data.dimension == 3:
                 range_factor = RangeFactorPose3(
-                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                    pose_symbol, landmark_symbol, dist, range_noise
                 )
             else:
                 raise ValueError(f"Unknown dimension: {data.dimension}")
         else:
             if data.dimension == 2:
                 range_factor = RangeFactor2D(
-                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                    pose_symbol, landmark_symbol, dist, range_noise
                 )
             elif data.dimension == 3:
                 range_factor = RangeFactor3D(
-                    pose_symbol, landmark_symbol, range_measure.dist, range_noise
+                    pose_symbol, landmark_symbol, dist, range_noise
                 )
             else:
                 raise ValueError(f"Unknown dimension: {data.dimension}")
@@ -269,9 +276,6 @@ def get_pose_to_pose_factor(
     return odom_factor
 
 
-#    return odom_factor
-
-
 def get_relative_pose_from_odom_measure(odom_measure: POSE_MEASUREMENT_TYPES):
     """Get the relative pose from the odometry measurement.
 
@@ -326,6 +330,67 @@ def add_loop_closure_cost(
         graph.push_back(loop_factor)
 
 
+def _get_pose_to_landmark_se_sync_factor(
+    pose_landmark_measure: POSE_MEASUREMENT_TYPES,
+    pose_symbol: int,
+    landmark_symbol: int,
+):
+    raise NotImplementedError("SESync factors for pose to landmark not implemented")
+
+
+def _get_pose_to_landmark_between_factor(
+    pose_landmark_measure: POSE_LANDMARK_MEASUREMENT_TYPES,
+) -> Union[RangeFactorPose2, RangeFactorPose3]:
+    measurement = pose_landmark_measure.translation_vector
+    # covar = pose_landmark_measure.covariance
+    noise_model = noiseModel.Diagonal.Sigmas(np.diag(pose_landmark_measure.covariance))
+    pose_sym = get_symbol_from_name(pose_landmark_measure.pose_name)
+    landmark_sym = get_symbol_from_name(pose_landmark_measure.landmark_name)
+    if isinstance(pose_landmark_measure, PoseToLandmarkMeasurement2D):
+        pose_to_landmark_factor = PoseToPointFactor2D(
+            pose_sym, landmark_sym, measurement, noise_model
+        )
+    elif isinstance(pose_landmark_measure, PoseToLandmarkMeasurement3D):
+        pose_to_landmark_factor = PoseToPointFactor3D(
+            pose_sym, landmark_sym, measurement, noise_model
+        )
+    else:
+        raise ValueError(f"Unknown measurement type: {type(pose_landmark_measure)}")
+    return pose_to_landmark_factor
+
+
+def get_pose_to_landmark_factor(
+    pose_landmark_measure: POSE_MEASUREMENT_TYPES,
+    factor_type: str,
+):
+    if factor_type == "SESync":
+        pose_to_landmark_factor = _get_pose_to_landmark_se_sync_factor(
+            pose_landmark_measure
+        )
+    elif factor_type == "between":
+        pose_to_landmark_factor = _get_pose_to_landmark_between_factor(
+            pose_landmark_measure
+        )
+    else:
+        raise ValueError(f"Unknown factor model: {factor_type}")
+    return pose_to_landmark_factor
+
+
+def add_pose_to_landmark_costs(
+    graph: NonlinearFactorGraph,
+    data: FactorGraphData,
+    factor_type: str = "between",
+):
+    assert (
+        factor_type in VALID_BETWEEN_FACTOR_MODELS
+    ), f"Invalid factor model: {factor_type}. Valid models are: {VALID_BETWEEN_FACTOR_MODELS}"
+    for pose_landmark_measure in data.pose_landmark_measurements:
+        pose_to_landmark_factor = get_pose_to_landmark_factor(
+            pose_landmark_measure, factor_type
+        )
+        graph.push_back(pose_to_landmark_factor)
+
+
 def add_landmark_prior_cost(
     graph: NonlinearFactorGraph,
     data: FactorGraphData,
@@ -339,7 +404,9 @@ def add_landmark_prior_cost(
     """
     for landmark_prior in data.landmark_priors:
         landmark_symbol = get_symbol_from_name(landmark_prior.name)
-        landmark_noise = noiseModel.Diagonal.Sigmas(np.diag(landmark_prior.covariance))
+        landmark_noise = noiseModel.Diagonal.Sigmas(
+            np.diag(landmark_prior.covariance * 10)
+        )
         if data.dimension == 2:
             landmark_prior_factor = PriorFactorPoint2(
                 landmark_symbol, landmark_prior.position, landmark_noise
@@ -577,7 +644,9 @@ def set_landmark_init_gt(
     for true_landmark in data.landmark_variables:
         # get landmark position
         landmark_key = true_landmark.name
-        true_pos = np.asarray(true_landmark.true_position)
+        true_pos = np.asarray(true_landmark.true_position) + np.random.normal(
+            0, 0.1, size=len(true_landmark.true_position)
+        )
 
         # initialize landmark to correct position
         init_landmark_variable(init_vals, landmark_key, true_pos)
@@ -732,13 +801,7 @@ def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> No
 def get_factor_graph_from_pyfg_data(data: FactorGraphData) -> NonlinearFactorGraph:
     factor_graph = NonlinearFactorGraph()
 
-    # form objective function
-    add_distances_cost(factor_graph, data)
-    add_odom_cost(factor_graph, data)
-    add_loop_closure_cost(factor_graph, data)
-    add_landmark_prior_cost(factor_graph, data)
-
-    # pin first pose at origin
+    add_all_costs(factor_graph, data)
     pin_first_pose(factor_graph, data)
 
     return factor_graph
