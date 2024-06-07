@@ -7,7 +7,10 @@ from py_factor_graph.measurements import (
     POSE_MEASUREMENT_TYPES,
     PoseToLandmarkMeasurement2D,
     PoseToLandmarkMeasurement3D,
+<<<<<<< HEAD
     POSE_LANDMARK_MEASUREMENT_TYPES,
+=======
+>>>>>>> f9ab807e62aa6d6405bd372b01bf8166a4d8e3cf
 )
 from py_factor_graph.variables import (
     PoseVariable2D,
@@ -60,6 +63,10 @@ from gtsam.gtsam import (
 from gtsam_unstable.gtsam_unstable import PoseToPointFactor2D, PoseToPointFactor3D
 from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
 from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
+from ra_slam.custom_factors.PoseToPointFactor import (
+    PoseToPoint2dFactor,
+    PoseToPoint3dFactor,
+)
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.matrix_utils import (
@@ -121,6 +128,7 @@ def add_all_costs(
     add_distances_cost(graph, data)
     add_odom_cost(graph, data, factor_type=rel_pose_factor_type)
     add_loop_closure_cost(graph, data, factor_type=rel_pose_factor_type)
+    add_pose_landmark_cost(graph, data)
     add_landmark_prior_cost(graph, data)
     add_pose_to_landmark_costs(graph, data)
 
@@ -801,7 +809,14 @@ def pin_first_landmark(graph: NonlinearFactorGraph, data: FactorGraphData) -> No
 def get_factor_graph_from_pyfg_data(data: FactorGraphData) -> NonlinearFactorGraph:
     factor_graph = NonlinearFactorGraph()
 
+<<<<<<< HEAD
     add_all_costs(factor_graph, data)
+=======
+    # form objective function
+    add_all_costs(factor_graph, data)
+
+    # pin first pose at origin
+>>>>>>> f9ab807e62aa6d6405bd372b01bf8166a4d8e3cf
     pin_first_pose(factor_graph, data)
 
     return factor_graph
