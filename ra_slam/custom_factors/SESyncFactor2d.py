@@ -1,6 +1,7 @@
 import gtsam
 import numpy as np
 from typing import List, Optional
+from py_factor_graph.utils.matrix_utils import get_rotation_matrix_from_theta
 
 
 def tangent_matrix(omega: float):
@@ -15,7 +16,7 @@ class RelativePose2dFactor(gtsam.CustomFactor):
         self,
         key_i: int,
         key_j: int,
-        relative_rotation: np.ndarray,
+        relative_rotation: gtsam.Rot2,
         relative_translation: np.ndarray,
         rotation_precision: float,
         translation_precision: float,
@@ -26,7 +27,7 @@ class RelativePose2dFactor(gtsam.CustomFactor):
         super().__init__(noise_model, [key_i, key_j], self.relative_pose2d_error_func)
         self._key_i = key_i
         self._key_j = key_j
-        self._relative_rotation = relative_rotation
+        self._relative_rotation = get_rotation_matrix_from_theta(relative_rotation.theta())
         self._relative_translation = relative_translation
         self._rotation_precision = rotation_precision
         self._translation_precision = translation_precision

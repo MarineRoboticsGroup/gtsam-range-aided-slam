@@ -49,6 +49,7 @@ from gtsam.gtsam import (
     BetweenFactorPose3,
     Pose2,
     Pose3,
+    Rot2,
     Rot3,
     PriorFactorPose2,
     PriorFactorPose3,
@@ -56,12 +57,35 @@ from gtsam.gtsam import (
     PriorFactorPoint3,
     symbol,
 )
-from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
-from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
-from ra_slam.custom_factors.PoseToPointFactor import (
-    PoseToPoint2dFactor,
-    PoseToPoint3dFactor,
-)
+
+try:
+    from gtsam import SESyncFactor2d as RelativePose2dFactor
+
+    logger.debug("Found C++ SESyncFactor2d")
+except ImportError:
+    logger.warning("Using python SESyncFactor2d - will be much slower")
+    from ra_slam.custom_factors.SESyncFactor2d import RelativePose2dFactor
+
+try:
+    from gtsam import SESyncFactor3d as RelativePose3dFactor
+
+    logger.debug("Found C++ SESyncFactor3d")
+except ImportError:
+    logger.warning("Using python SESyncFactor3d - will be much slower")
+    from ra_slam.custom_factors.SESyncFactor3d import RelativePose3dFactor
+
+try:
+    # gtu.PoseToPointFactor2D, 3D
+    from gtsam_unstable import PoseToPointFactor2D as PoseToPoint2dFactor
+    from gtsam_unstable import PoseToPointFactor3D as PoseToPoint3dFactor
+
+    logger.info("Found C++ PoseToPointFactor for 2D and 3D")
+except ImportError:
+    logger.warning("Using python PoseToPointFactor - will be much slower")
+    from ra_slam.custom_factors.PoseToPointFactor import (
+        PoseToPoint2dFactor,
+        PoseToPoint3dFactor,
+    )
 
 from py_factor_graph.factor_graph import FactorGraphData
 from py_factor_graph.utils.matrix_utils import (
@@ -69,6 +93,7 @@ from py_factor_graph.utils.matrix_utils import (
     get_random_vector,
     get_random_transformation_matrix,
     get_theta_from_transformation_matrix,
+    get_theta_from_rotation_matrix,
     get_translation_from_transformation_matrix,
     apply_transformation_matrix_perturbation,
 )
@@ -117,7 +142,8 @@ class GtsamSolverParams:
 def add_all_costs(
     graph: NonlinearFactorGraph,
     data: FactorGraphData,
-    rel_pose_factor_type: str = "between",
+    rel_pose_factor_type: str = "SESync",
+    # rel_pose_factor_type: str = "between",
 ) -> None:
     # form objective function
     add_distances_cost(graph, data)
@@ -175,7 +201,7 @@ def add_distances_cost(
 def add_odom_cost(
     graph: NonlinearFactorGraph,
     data: FactorGraphData,
-    factor_type: str = "between",
+    factor_type: str = "SESync",
 ):
     """Add the cost associated with the odometry measurements as:
 
@@ -226,19 +252,21 @@ def _get_between_se_sync_factor(
     odom_measure: POSE_MEASUREMENT_TYPES, i_sym: int, j_sym: int
 ) -> Union[RelativePose2dFactor, RelativePose3dFactor]:
     if isinstance(odom_measure, PoseMeasurement2D):
+        rot2_measure = Rot2(get_theta_from_rotation_matrix(odom_measure.rotation_matrix))
         odom_factor = RelativePose2dFactor(
             i_sym,
             j_sym,
-            odom_measure.rotation_matrix,
+            rot2_measure,
             odom_measure.translation_vector,
-            odom_measure.rotation_precision,
-            odom_measure.translation_precision,
+            0.5 * odom_measure.rotation_precision,
+            0.5 * odom_measure.translation_precision,
         )
     elif isinstance(odom_measure, PoseMeasurement3D):
+        rot3_measure = Rot3(odom_measure.rotation_matrix)
         odom_factor = RelativePose3dFactor(
             i_sym,
             j_sym,
-            odom_measure.rotation_matrix,
+            rot3_measure,
             odom_measure.translation_vector,
             odom_measure.rotation_precision,
             odom_measure.translation_precision,
@@ -303,7 +331,7 @@ def get_relative_pose_from_odom_measure(odom_measure: POSE_MEASUREMENT_TYPES):
 def add_loop_closure_cost(
     graph: NonlinearFactorGraph,
     data: FactorGraphData,
-    factor_type: str = "between",
+    factor_type: str = "SESync",
 ):
     """Add the cost associated with the loop closure measurements as:
 
@@ -351,12 +379,18 @@ def add_pose_landmark_cost(
         i_symbol = get_symbol_from_name(plm.pose_name)
         j_symbol = get_symbol_from_name(plm.landmark_name)
         if isinstance(plm, PoseToLandmarkMeasurement2D):
+            noise_model = noiseModel.Diagonal.Precisions(
+                2 * np.array([plm.translation_precision] * 2)
+            )
             plm_factor = PoseToPoint2dFactor(
-                i_symbol, j_symbol, plm.translation_vector, plm.translation_precision
+                i_symbol, j_symbol, plm.translation_vector, noise_model
             )
         elif isinstance(plm, PoseToLandmarkMeasurement3D):
+            noise_model = noiseModel.Diagonal.Precisions(
+                2 * np.array([plm.translation_precision] * 3)
+            )
             plm_factor = PoseToPoint3dFactor(
-                i_symbol, j_symbol, plm.translation_vector, plm.translation_precision
+                i_symbol, j_symbol, plm.translation_vector, noise_model
             )
         else:
             raise ValueError(f"Unknown measurement type: {type(plm)}")

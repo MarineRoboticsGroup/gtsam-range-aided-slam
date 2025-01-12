@@ -29,11 +29,8 @@ class PoseToPoint2dFactor(gtsam.CustomFactor):
         key_i: int,
         key_j: int,
         relative_translation: np.ndarray,
-        translation_precision: float,
+        noise_model: gtsam.noiseModel.Base,
     ) -> None:
-        noise_model = gtsam.noiseModel.Diagonal.Precisions(
-            2 * np.array([translation_precision] * 2)
-        )
         super().__init__(noise_model, [key_i, key_j], self.relative_error_func)
         self._key_i = key_i
         self._key_j = key_j
@@ -116,11 +113,8 @@ class PoseToPoint3dFactor(gtsam.CustomFactor):
         key_i: int,
         key_j: int,
         relative_translation: np.ndarray,
-        translation_precision: float,
+        noise_model: gtsam.noiseModel.Base,
     ) -> None:
-        noise_model = gtsam.noiseModel.Diagonal.Precisions(
-            2 * np.array([translation_precision] * 3)
-        )
         # noise_model = noiseModel
         super().__init__(noise_model, [key_i, key_j], self.relative_error_func)
         self._key_i = key_i

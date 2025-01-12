@@ -61,6 +61,8 @@ def solve_with_levenberg_marquardt(
     optimizer = LevenbergMarquardtOptimizer(graph, initial_vals)
     params = LevenbergMarquardtParams()
     params.setVerbosityLM("SUMMARY")
+    # # set to be very verbose
+    # params.setVerbosityLM("LAMBDA")
 
     # check that the variables in the graph are all in the initial values
     # otherwise, the optimizer will throw an error

@@ -64,7 +64,11 @@ def solve_mle_gtsam(
     gtsam_result = solve(
         factor_graph, initial_values, solver, return_all_iterates=return_all_iterates
     )
-    cost = factor_graph.error(gtsam_result)
+    if isinstance(gtsam_result, list):
+        assert len(gtsam_result) > 0
+        cost = factor_graph.error(gtsam_result[-1])
+    else:
+        cost = factor_graph.error(gtsam_result)
     tot_time = time.perf_counter() - start_time
 
     # return the results
